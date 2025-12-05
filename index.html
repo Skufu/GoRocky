@@ -109,7 +109,7 @@
                         <input type="text" id="p-name" class="input-field" placeholder="Enter name...">
                     </div>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 32px;">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 32px;">
                         <div class="input-group">
                             <label class="input-label">WEIGHT (KG)</label>
                             <input type="number" id="p-weight" class="input-field" placeholder="00">
@@ -117,6 +117,10 @@
                         <div class="input-group">
                             <label class="input-label">HEIGHT (CM)</label>
                             <input type="number" id="p-height" class="input-field" placeholder="000">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">AGE (YEARS)</label>
+                            <input type="number" id="p-age" class="input-field" placeholder="00">
                         </div>
                     </div>
 
@@ -139,12 +143,25 @@
                                 <input type="checkbox" value="Kidney Disease">
                                 <span class="selection-visual">KIDNEY ISSUES</span>
                             </label>
+                            <label class="selection-card">
+                                <input type="checkbox" value="Liver Disease">
+                                <span class="selection-visual">LIVER DISEASE</span>
+                            </label>
+                            <label class="selection-card">
+                                <input type="checkbox" value="Pregnant">
+                                <span class="selection-visual">PREGNANT</span>
+                            </label>
                         </div>
                     </div>
 
                     <div class="input-group">
                         <label class="input-label">ACTIVE MEDICATIONS</label>
                         <input type="text" id="p-meds" class="input-field" placeholder="List medications...">
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label">ALLERGIES (DRUG/CLASS)</label>
+                        <input type="text" id="p-allergies" class="input-field" placeholder="e.g. Sildenafil, Penicillin, Nitrates">
                     </div>
                     
                      <div class="input-group">
@@ -188,9 +205,24 @@
                             <div class="tech-tag" style="background: var(--status-warning); color: var(--ink-primary); border: 2px solid var(--ink-primary);">CLINICAL ALERTS</div>
                             <svg style="color: var(--status-warning);" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                         </div>
-                        <ul id="issue-list" class="clinical-list">
-                            <!-- Injected -->
-                        </ul>
+                        <div style="display: grid; gap: 16px;">
+                            <div>
+                                <div class="input-label" style="font-size: 0.75rem; margin-bottom: 6px;">SUMMARY ISSUES</div>
+                                <ul id="issue-list" class="clinical-list"></ul>
+                            </div>
+                            <div>
+                                <div class="input-label" style="font-size: 0.75rem; margin-bottom: 6px;">INTERACTIONS</div>
+                                <ul id="interactions-list" class="clinical-list"></ul>
+                            </div>
+                            <div>
+                                <div class="input-label" style="font-size: 0.75rem; margin-bottom: 6px;">CONTRAINDICATIONS</div>
+                                <ul id="contra-list" class="clinical-list"></ul>
+                            </div>
+                            <div>
+                                <div class="input-label" style="font-size: 0.75rem; margin-bottom: 6px;">DOSING CONCERNS</div>
+                                <ul id="dosing-list" class="clinical-list"></ul>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- RECOMMENDATION PANEL -->

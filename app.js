@@ -13,28 +13,36 @@ const MEDICAL_PROMPT = `
         You are GoRocky Clinical AI, a high-precision medical decision support engine.
         Analyze the patient intake data and provide a structured JSON treatment plan.
 
+        Patient intake fields: name, age, weight, height, conditions, medications, allergies, complaint.
+
         *** CRITICAL MEDICAL RULES (STRICT ENFORCEMENT) ***
-        1. [CONTRAINDICATION - HIGH RISK] Nitrates (Nitroglycerin, Isosorbide) + PDE5 Inhibitors (Sildenafil, Tadalafil) -> Risk of fatal hypotension.
-        2. [CONTRAINDICATION - HIGH RISK] Uncontrolled Hypertension (>170/110) -> Do not prescribe PDE5i.
-        3. [CONTRAINDICATION - HIGH RISK] Recent MI/Stroke (<6 months).
-        4. [INTERACTION - MEDIUM RISK] Alpha-blockers (Tamsulosin) + PDE5i -> Caution required, separate doses.
-        5. [DOSING - MEDIUM RISK] Renal Impairment -> Adjust dose (max 2.5mg/5mg daily depending on CrCl).
-        6. [DOSING - MEDIUM RISK] Age > 65 -> Start with lower dose.
+        1. [CONTRAINDICATION - HIGH] Nitrates (Nitroglycerin, Isosorbide) + PDE5 inhibitors (Sildenafil, Tadalafil, Vardenafil, Avanafil) -> Risk of profound hypotension. Do NOT co-administer.
+        2. [CONTRAINDICATION - HIGH] PDE5 inhibitor allergy or nitrate allergy -> Avoid prescribing PDE5 inhibitors.
+        3. [INTERACTION - MEDIUM] Alpha-blockers (Tamsulosin, Terazosin, Doxazosin, Alfuzosin) + PDE5 inhibitors -> Separate dosing, start low.
+        4. [INTERACTION - MEDIUM] Strong CYP3A4 inhibitors (Ketoconazole, Itraconazole, Ritonavir, Cobicistat, Clarithromycin) + PDE5 inhibitors -> Use lowest dose / avoid high doses.
+        5. [DOSING - MEDIUM] Renal impairment (Kidney Disease) -> Start with lower PDE5 inhibitor dose (2.5mg/5mg daily max).
+        6. [DOSING - MEDIUM] Age > 65 -> Start with lower dose.
+        7. [CONTRAINDICATION - MEDIUM] Pregnancy -> Avoid PDE5 inhibitor use (safety not established).
+        8. [CAUTION] Heart disease or uncontrolled hypertension -> Assess hemodynamic risk; prefer low dose or alternative.
 
         *** REQUIRED OUTPUT FORMAT (JSON ONLY) ***
-        You must return valid JSON matching this schema exactly. Do not include markdown code blocks.
+        Return valid JSON (no markdown) matching:
         {
-          "riskScore": number (0-100, where 100 is maximal risk),
+          "riskScore": number (0-100),
           "riskLevel": "LOW" | "MEDIUM" | "HIGH",
-          "issues": ["List of specific contraindications", "Drug interactions", "Safety warnings"],
+          "issues": ["List of contraindications/interactions/dosing warnings"],
+          "interactions": [{"pair": "Drug A + Drug B/Class", "severity": "HIGH"|"MEDIUM"|"LOW", "note": "clinical rationale"}],
+          "contraindications": [{"conditionOrAllergy": "string", "severity": "HIGH"|"MEDIUM"|"LOW", "note": "clinical rationale"}],
+          "dosingConcerns": [{"factor": "age|renal|hepatic|other", "severity": "HIGH"|"MEDIUM"|"LOW", "recommendation": "actionable guidance"}],
           "plan": {
             "medication": "Drug Name" | "None",
-            "dosage": "e.g. 5mg Daily",
+            "dosage": "e.g. 2.5mg Daily",
             "duration": "e.g. 30 Days",
-            "rationale": "Concise clinical reasoning for this decision"
+            "rationale": "Concise clinical reasoning"
           },
           "alternatives": ["Alternative 1", "Alternative 2"],
-          "confidenceScore": number (0.0 to 1.0)
+          "confidenceScore": number (0.0 to 1.0),
+          "source": "model" | "rules" | "rules+model"
         }
         `;
 
@@ -70,23 +78,30 @@ window.prefill = function (type) {
     const nameInput = document.getElementById('p-name');
     const medsInput = document.getElementById('p-meds');
     const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    const ageInput = document.getElementById('p-age');
+    const allergyInput = document.getElementById('p-allergies');
 
     checkboxes.forEach(cb => cb.checked = false);
+    allergyInput.value = '';
 
     if (type === 'standard') {
         nameInput.value = "Alex Mercer";
         medsInput.value = "Vitamin D";
         document.getElementById('p-weight').value = 80;
         document.getElementById('p-height').value = 180;
+        ageInput.value = 45;
         document.getElementById('p-complaint').value = "Erectile Dysfunction";
     } else {
         nameInput.value = "Robert Vance";
         medsInput.value = "Nitroglycerin, Atorvastatin";
         document.getElementById('p-weight').value = 95;
         document.getElementById('p-height').value = 175;
+        ageInput.value = 68;
         document.getElementById('p-complaint').value = "Erectile Dysfunction";
         Array.from(checkboxes).find(cb => cb.value === 'Heart Disease').checked = true;
         Array.from(checkboxes).find(cb => cb.value === 'Hypertension').checked = true;
+        const pregBox = Array.from(checkboxes).find(cb => cb.value === 'Pregnant');
+        if (pregBox) pregBox.checked = false;
     }
 };
 
@@ -156,10 +171,12 @@ async function analyze() {
 
     currentPatientData = {
         name: document.getElementById('p-name').value,
-        weight: document.getElementById('p-weight').value,
-        height: document.getElementById('p-height').value,
+        weight: Number(document.getElementById('p-weight').value) || 0,
+        height: Number(document.getElementById('p-height').value) || 0,
+        age: Number(document.getElementById('p-age').value) || 0,
         conditions: Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value),
         medications: document.getElementById('p-meds').value,
+        allergies: document.getElementById('p-allergies').value,
         complaint: document.getElementById('p-complaint').value || "General Checkup"
     };
 
@@ -175,6 +192,10 @@ async function analyze() {
         } else {
             await addLog(`DISPATCHING TO BACKEND @ ${API_BASE}/api/diagnostics/mock ...`);
             result = await callBackendMock(currentPatientData);
+        }
+
+        if (activeModel !== 'mock') {
+            result = mergeWithRules(result, currentPatientData);
         }
 
         await addLog("VALIDATING JSON SCHEMA...");
@@ -250,51 +271,213 @@ async function callOpenAI(patientData) {
     return JSON.parse(data.choices[0].message.content);
 }
 
-function mockAnalyze(data) {
-    const meds = (data.medications || "").toLowerCase();
-    const conditions = data.conditions || [];
-    const isNitro = meds.includes('nitro') || meds.includes('isosorbide');
-    const isHTN = conditions.includes('Hypertension');
+// Local safety rules engine for deterministic DDI/contra/dosing checks
+const DRUG_CLASSES = {
+    pde5i: ['sildenafil', 'tadalafil', 'vardenafil', 'avanafil'],
+    nitrates: ['nitroglycerin', 'isosorbide', 'isosorbide dinitrate', 'isosorbide mononitrate'],
+    alphaBlockers: ['tamsulosin', 'doxazosin', 'terazosin', 'alfuzosin'],
+    cyp3a4Inhibitors: ['ketoconazole', 'itraconazole', 'ritonavir', 'cobicistat', 'clarithromycin']
+};
 
-    if (isNitro) {
-        return {
-            riskScore: 98,
-            riskLevel: "HIGH",
-            issues: ["ABSOLUTE CONTRAINDICATION: Nitrates detected", "Risk of fatal hypotension"],
-            plan: { medication: "None", dosage: "N/A", duration: "N/A", rationale: "Patient takes nitrates. PDE5 inhibitors are absolutely contraindicated." },
-            alternatives: ["Vacuum Erection Device (VED)", "Intracavernosal Injections (Specialist)"],
-            confidenceScore: 0.99
-        };
-    } else if (isHTN) {
-        return {
-            riskScore: 45,
-            riskLevel: "MEDIUM",
-            issues: ["Hypertension history - monitor BP", "Potential additive hypotensive effect"],
-            plan: { medication: "Tadalafil", dosage: "2.5mg Daily", duration: "30 Days", rationale: "Starting low dose due to cardiovascular history. Monitor BP." },
-            alternatives: ["Sildenafil 25mg on demand"],
-            confidenceScore: 0.92
-        };
-    } else {
-        return {
-            riskScore: 12,
-            riskLevel: "LOW",
-            issues: ["None"],
-            plan: { medication: "Tadalafil", dosage: "5mg Daily", duration: "90 Days", rationale: "Standard protocol. Patient fits safety profile." },
-            alternatives: ["Sildenafil 50mg on demand", "Vardenafil 10mg"],
-            confidenceScore: 0.98
-        };
+const SEVERITY_WEIGHT = { HIGH: 40, MEDIUM: 20, LOW: 10 };
+
+function normalizeList(text) {
+    return (text || '')
+        .split(/[,;]/)
+        .map(t => t.trim().toLowerCase())
+        .filter(Boolean);
+}
+
+function hasClassToken(tokens, classList) {
+    return tokens.some(t => classList.some(drug => t.includes(drug)));
+}
+
+function runSafetyEngine(data) {
+    const meds = normalizeList(data.medications);
+    const allergies = normalizeList(data.allergies);
+    const conditions = (data.conditions || []).map(c => c.toLowerCase());
+    const age = Number(data.age) || null;
+
+    const hasPDE5i = hasClassToken(meds, DRUG_CLASSES.pde5i);
+    const hasNitrates = hasClassToken(meds, DRUG_CLASSES.nitrates);
+    const hasAlphaBlocker = hasClassToken(meds, DRUG_CLASSES.alphaBlockers);
+    const hasCyp3a4Inhibitor = hasClassToken(meds, DRUG_CLASSES.cyp3a4Inhibitors);
+    const pregnant = conditions.includes('pregnant');
+    const kidneyDisease = conditions.includes('kidney disease');
+    const liverDisease = conditions.includes('liver disease');
+    const heartDisease = conditions.includes('heart disease');
+    const hypertension = conditions.includes('hypertension');
+
+    const allergyToPde5i = hasClassToken(allergies, DRUG_CLASSES.pde5i);
+    const allergyToNitrates = hasClassToken(allergies, DRUG_CLASSES.nitrates);
+
+    const interactions = [];
+    const contraindications = [];
+    const dosingConcerns = [];
+
+    if (hasPDE5i && hasNitrates) {
+        interactions.push({ pair: "Nitrates + PDE5i", severity: "HIGH", note: "Risk of profound hypotension; avoid co-administration." });
     }
+    if (hasPDE5i && hasAlphaBlocker) {
+        interactions.push({ pair: "Alpha-blocker + PDE5i", severity: "MEDIUM", note: "Additive hypotension; separate dosing and start low." });
+    }
+    if (hasPDE5i && hasCyp3a4Inhibitor) {
+        interactions.push({ pair: "Strong CYP3A4 inhibitor + PDE5i", severity: "MEDIUM", note: "Higher PDE5i levels; use lowest dose and monitor." });
+    }
+
+    if (hasNitrates) {
+        contraindications.push({ conditionOrAllergy: "Nitrate therapy", severity: "HIGH", note: "Concurrent nitrate use contraindicates PDE5 inhibitors due to hypotension risk." });
+    }
+    if (allergyToPde5i) {
+        contraindications.push({ conditionOrAllergy: "PDE5 inhibitor allergy", severity: "HIGH", note: "Do not prescribe PDE5 inhibitors." });
+    }
+    if (allergyToNitrates) {
+        contraindications.push({ conditionOrAllergy: "Nitrate allergy", severity: "HIGH", note: "Avoid nitrates and PDE5 co-prescribing." });
+    }
+    if (pregnant) {
+        contraindications.push({ conditionOrAllergy: "Pregnancy", severity: "MEDIUM", note: "Safety not established; avoid PDE5 inhibitors." });
+    }
+    if (heartDisease) {
+        contraindications.push({ conditionOrAllergy: "Heart Disease", severity: "MEDIUM", note: "Assess hemodynamic reserve; prefer low dose or alternative." });
+    }
+    if (hypertension) {
+        contraindications.push({ conditionOrAllergy: "Hypertension", severity: "MEDIUM", note: "Monitor BP; start low to avoid hypotension." });
+    }
+
+    if (age && age >= 65) {
+        dosingConcerns.push({ factor: "Age >65", severity: "MEDIUM", recommendation: "Initiate at lowest dose; titrate cautiously." });
+    }
+    if (kidneyDisease) {
+        dosingConcerns.push({ factor: "Renal impairment", severity: "MEDIUM", recommendation: "Max 2.5mg-5mg daily; monitor for hypotension." });
+    }
+    if (liverDisease) {
+        dosingConcerns.push({ factor: "Hepatic impairment", severity: "MEDIUM", recommendation: "Use lowest dose; consider avoiding if severe." });
+    }
+
+    const allFindings = [...interactions, ...contraindications, ...dosingConcerns];
+    const maxSeverity = allFindings.some(f => f.severity === "HIGH")
+        ? "HIGH"
+        : allFindings.some(f => f.severity === "MEDIUM")
+            ? "MEDIUM"
+            : "LOW";
+
+    const score = Math.min(
+        100,
+        allFindings.reduce((acc, f) => acc + (SEVERITY_WEIGHT[f.severity] || 0), 5)
+    );
+
+    const riskLevel = maxSeverity === "HIGH"
+        ? "HIGH"
+        : score >= 60
+            ? "HIGH"
+            : score >= 30
+                ? "MEDIUM"
+                : "LOW";
+
+    const issues = [];
+    interactions.forEach(i => issues.push(`[${i.severity}] Interaction: ${i.pair} - ${i.note}`));
+    contraindications.forEach(c => issues.push(`[${c.severity}] Contraindication: ${c.conditionOrAllergy} - ${c.note}`));
+    dosingConcerns.forEach(d => issues.push(`[${d.severity}] Dosing: ${d.factor} - ${d.recommendation}`));
+    if (issues.length === 0) issues.push("None");
+
+    let medication = "Tadalafil";
+    let dosage = "5mg Daily";
+    let duration = "90 Days";
+    const highBlocker = interactions.some(i => i.severity === "HIGH") || contraindications.some(c => c.severity === "HIGH");
+
+    if (highBlocker) {
+        medication = "None";
+        dosage = "N/A";
+        duration = "N/A";
+    } else if (age >= 65 || kidneyDisease || liverDisease || hasAlphaBlocker || hasCyp3a4Inhibitor || hypertension || heartDisease) {
+        dosage = "2.5mg Daily";
+        duration = "30 Days";
+    }
+
+    const rationalePieces = [];
+    if (medication === "None") {
+        rationalePieces.push("Safety blockers present; pharmacotherapy deferred.");
+    } else {
+        rationalePieces.push("PDE5 inhibitor indicated; starting with conservative dosing due to risk factors.");
+    }
+    if (age >= 65) rationalePieces.push("Age >65");
+    if (kidneyDisease) rationalePieces.push("Renal impairment");
+    if (liverDisease) rationalePieces.push("Hepatic impairment");
+    if (hasAlphaBlocker) rationalePieces.push("Alpha-blocker co-therapy");
+    if (hasCyp3a4Inhibitor) rationalePieces.push("CYP3A4 inhibitor present");
+    if (heartDisease) rationalePieces.push("Cardiovascular history");
+    if (pregnant) rationalePieces.push("Pregnancy");
+
+    const confidenceScore = Math.max(0.6, 1 - score / 120);
+
+    return {
+        riskScore: score,
+        riskLevel,
+        issues,
+        interactions,
+        contraindications,
+        dosingConcerns,
+        plan: {
+            medication,
+            dosage,
+            duration,
+            rationale: rationalePieces.join("; ") || "Standard protocol."
+        },
+        alternatives: medication === "None"
+            ? ["Vacuum erection device", "Specialist referral"]
+            : ["Sildenafil 25mg on demand", "Vardenafil 10mg", "Behavioral therapy"],
+        confidenceScore,
+        source: "rules"
+    };
+}
+
+function mergeWithRules(modelResult, patientData) {
+    const rules = runSafetyEngine(patientData);
+    const merged = { ...rules, ...modelResult };
+
+    merged.interactions = rules.interactions;
+    merged.contraindications = rules.contraindications;
+    merged.dosingConcerns = rules.dosingConcerns;
+    merged.issues = Array.from(new Set([...(modelResult.issues || []), ...(rules.issues || [])]));
+
+    const level = higherRiskLevel(modelResult.riskLevel, rules.riskLevel);
+    merged.riskLevel = level;
+    merged.riskScore = Math.max(modelResult.riskScore || 0, rules.riskScore || 0);
+
+    merged.plan = modelResult.plan || rules.plan;
+    merged.alternatives = modelResult.alternatives || rules.alternatives;
+    merged.confidenceScore = modelResult.confidenceScore ?? rules.confidenceScore;
+    merged.source = modelResult.source ? `${modelResult.source}+rules` : "rules+model";
+
+    return merged;
+}
+
+function higherRiskLevel(a, b) {
+    const rank = { "LOW": 0, "MEDIUM": 1, "HIGH": 2 };
+    return (rank[a] || 0) >= (rank[b] || 0) ? a : b;
+}
+
+function mockAnalyze(data) {
+    return runSafetyEngine(data);
 }
 
 function validateSchema(data) {
+    if (!data || typeof data !== 'object') throw new Error("Invalid response payload");
     if (!data.riskLevel || !data.plan || !data.issues) throw new Error("Invalid JSON Schema from LLM");
     if (!['LOW', 'MEDIUM', 'HIGH'].includes(data.riskLevel)) throw new Error("Invalid Risk Level value");
+    data.interactions = data.interactions || [];
+    data.contraindications = data.contraindications || [];
+    data.dosingConcerns = data.dosingConcerns || [];
+    data.plan = data.plan || { medication: "None", dosage: "N/A", duration: "N/A", rationale: "No plan generated." };
 }
 
 // RENDER FUNCTIONS
 function renderResults(data) {
     const riskOutput = document.getElementById('risk-output');
     const issueList = document.getElementById('issue-list');
+    const interactionsList = document.getElementById('interactions-list');
+    const contraList = document.getElementById('contra-list');
+    const dosingList = document.getElementById('dosing-list');
     const planOutput = document.getElementById('plan-output');
     const rationaleOutput = document.getElementById('rationale-output');
     const altList = document.getElementById('alternatives-list');
@@ -335,6 +518,30 @@ function renderResults(data) {
                         <span>Safety protocols passed. No issues found.</span>
                     </li>`;
     }
+
+    const renderDetailList = (items, target, emptyText) => {
+        if (!target) return;
+        if (!items || items.length === 0) {
+            target.innerHTML = `<li class="issue-item" style="border-color:var(--status-success);"><div class="issue-icon" style="background:var(--status-success); color:white;">✓</div><span>${emptyText}</span></li>`;
+            return;
+        }
+        target.innerHTML = items.map(item => {
+            if (item.pair) {
+                return `<li class="issue-item"><div class="issue-icon" style="background:var(--status-warning); color:white;">!</div><span>[${item.severity}] ${item.pair} — ${item.note}</span></li>`;
+            }
+            if (item.conditionOrAllergy) {
+                return `<li class="issue-item"><div class="issue-icon" style="background:var(--status-warning); color:white;">!</div><span>[${item.severity}] ${item.conditionOrAllergy} — ${item.note}</span></li>`;
+            }
+            if (item.factor) {
+                return `<li class="issue-item"><div class="issue-icon" style="background:var(--status-warning); color:white;">!</div><span>[${item.severity}] ${item.factor} — ${item.recommendation}</span></li>`;
+            }
+            return `<li class="issue-item"><div class="issue-icon" style="background:var(--status-warning); color:white;">!</div><span>${JSON.stringify(item)}</span></li>`;
+        }).join('');
+    };
+
+    renderDetailList(data.interactions || [], interactionsList, "No interaction risks detected.");
+    renderDetailList(data.contraindications || [], contraList, "No contraindications detected.");
+    renderDetailList(data.dosingConcerns || [], dosingList, "No dosing concerns detected.");
 
     planOutput.innerHTML = `
                 ${data.plan.medication}

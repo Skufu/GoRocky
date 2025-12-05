@@ -34,8 +34,10 @@ type PatientData struct {
 	Name        string   `json:"name"`
 	Weight      float64  `json:"weight"`
 	Height      float64  `json:"height"`
+	Age         int      `json:"age"`
 	Conditions  []string `json:"conditions"`
 	Medications string   `json:"medications"`
+	Allergies   string   `json:"allergies"`
 	Complaint   string   `json:"complaint"`
 }
 
@@ -47,13 +49,47 @@ type Plan struct {
 }
 
 type DiagnosticResult struct {
-	RiskScore       int      `json:"riskScore"`
-	RiskLevel       string   `json:"riskLevel"`
-	Issues          []string `json:"issues"`
-	Plan            Plan     `json:"plan"`
-	Alternatives    []string `json:"alternatives"`
-	ConfidenceScore float64  `json:"confidenceScore"`
+	RiskScore         int                `json:"riskScore"`
+	RiskLevel         string             `json:"riskLevel"`
+	Issues            []string           `json:"issues"`
+	Interactions      []Interaction      `json:"interactions"`
+	Contraindications []Contraindication `json:"contraindications"`
+	DosingConcerns    []DosingConcern    `json:"dosingConcerns"`
+	Plan              Plan               `json:"plan"`
+	Alternatives      []string           `json:"alternatives"`
+	ConfidenceScore   float64            `json:"confidenceScore"`
+	Source            string             `json:"source"`
 }
+
+type Interaction struct {
+	Pair     string `json:"pair"`
+	Severity string `json:"severity"`
+	Note     string `json:"note"`
+}
+
+type Contraindication struct {
+	ConditionOrAllergy string `json:"conditionOrAllergy"`
+	Severity           string `json:"severity"`
+	Note               string `json:"note"`
+}
+
+type DosingConcern struct {
+	Factor         string `json:"factor"`
+	Severity       string `json:"severity"`
+	Recommendation string `json:"recommendation"`
+}
+
+var (
+	pde5iClass        = []string{"sildenafil", "tadalafil", "vardenafil", "avanafil"}
+	nitrateClass      = []string{"nitroglycerin", "isosorbide", "isosorbide dinitrate", "isosorbide mononitrate"}
+	alphaBlockerClass = []string{"tamsulosin", "doxazosin", "terazosin", "alfuzosin"}
+	cyp3a4Class       = []string{"ketoconazole", "itraconazole", "ritonavir", "cobicistat", "clarithromycin"}
+	severityWeight    = map[string]int{
+		"HIGH":   40,
+		"MEDIUM": 20,
+		"LOW":    10,
+	}
+)
 
 func main() {
 	gin.SetMode(getEnv("GIN_MODE", "release"))
@@ -196,65 +232,314 @@ func setupRouter(db HealthChecker, staticRoot string) *gin.Engine {
 }
 
 func mockAnalyze(data PatientData) DiagnosticResult {
-	meds := strings.ToLower(data.Medications)
-	isNitro := strings.Contains(meds, "nitro") || strings.Contains(meds, "isosorbide")
-	isHTN := containsValue(data.Conditions, "Hypertension")
-
-	switch {
-	case isNitro:
-		return DiagnosticResult{
-			RiskScore: 98,
-			RiskLevel: "HIGH",
-			Issues: []string{
-				"ABSOLUTE CONTRAINDICATION: Nitrates detected",
-				"Risk of fatal hypotension",
-			},
-			Plan: Plan{
-				Medication: "None",
-				Dosage:     "N/A",
-				Duration:   "N/A",
-				Rationale:  "Patient takes nitrates. PDE5 inhibitors are absolutely contraindicated.",
-			},
-			Alternatives:    []string{"Vacuum Erection Device (VED)", "Intracavernosal Injections (Specialist)"},
-			ConfidenceScore: 0.99,
-		}
-	case isHTN:
-		return DiagnosticResult{
-			RiskScore: 45,
-			RiskLevel: "MEDIUM",
-			Issues: []string{
-				"Hypertension history - monitor BP",
-				"Potential additive hypotensive effect",
-			},
-			Plan: Plan{
-				Medication: "Tadalafil",
-				Dosage:     "2.5mg Daily",
-				Duration:   "30 Days",
-				Rationale:  "Starting low dose due to cardiovascular history. Monitor BP.",
-			},
-			Alternatives:    []string{"Sildenafil 25mg on demand"},
-			ConfidenceScore: 0.92,
-		}
-	default:
-		return DiagnosticResult{
-			RiskScore: 12,
-			RiskLevel: "LOW",
-			Issues:    []string{"None"},
-			Plan: Plan{
-				Medication: "Tadalafil",
-				Dosage:     "5mg Daily",
-				Duration:   "90 Days",
-				Rationale:  "Standard protocol. Patient fits safety profile.",
-			},
-			Alternatives:    []string{"Sildenafil 50mg on demand", "Vardenafil 10mg"},
-			ConfidenceScore: 0.98,
-		}
-	}
+	return runSafetyEngine(data)
 }
 
-func containsValue(values []string, target string) bool {
+func runSafetyEngine(data PatientData) DiagnosticResult {
+	meds := normalizeList(data.Medications)
+	allergies := normalizeList(data.Allergies)
+
+	conditions := make([]string, 0, len(data.Conditions))
+	for _, c := range data.Conditions {
+		conditions = append(conditions, strings.ToLower(strings.TrimSpace(c)))
+	}
+
+	hasPDE5i := hasClassToken(meds, pde5iClass)
+	hasNitrates := hasClassToken(meds, nitrateClass)
+	hasAlphaBlocker := hasClassToken(meds, alphaBlockerClass)
+	hasCyp3a4 := hasClassToken(meds, cyp3a4Class)
+
+	pregnant := containsString(conditions, "pregnant")
+	kidneyDisease := containsString(conditions, "kidney disease")
+	liverDisease := containsString(conditions, "liver disease")
+	heartDisease := containsString(conditions, "heart disease")
+	hypertension := containsString(conditions, "hypertension")
+
+	allergyToPde5i := hasClassToken(allergies, pde5iClass)
+	allergyToNitrates := hasClassToken(allergies, nitrateClass)
+
+	interactions := []Interaction{}
+	contraindications := []Contraindication{}
+	dosingConcerns := []DosingConcern{}
+
+	if hasPDE5i && hasNitrates {
+		interactions = append(interactions, Interaction{
+			Pair:     "Nitrates + PDE5i",
+			Severity: "HIGH",
+			Note:     "Risk of profound hypotension; avoid co-administration.",
+		})
+	}
+	if hasPDE5i && hasAlphaBlocker {
+		interactions = append(interactions, Interaction{
+			Pair:     "Alpha-blocker + PDE5i",
+			Severity: "MEDIUM",
+			Note:     "Additive hypotension; separate dosing and start low.",
+		})
+	}
+	if hasPDE5i && hasCyp3a4 {
+		interactions = append(interactions, Interaction{
+			Pair:     "Strong CYP3A4 inhibitor + PDE5i",
+			Severity: "MEDIUM",
+			Note:     "Higher PDE5i levels; use lowest dose and monitor.",
+		})
+	}
+
+	if hasNitrates {
+		contraindications = append(contraindications, Contraindication{
+			ConditionOrAllergy: "Nitrate therapy",
+			Severity:           "HIGH",
+			Note:               "Concurrent nitrate use contraindicates PDE5 inhibitors due to hypotension risk.",
+		})
+	}
+	if allergyToPde5i {
+		contraindications = append(contraindications, Contraindication{
+			ConditionOrAllergy: "PDE5 inhibitor allergy",
+			Severity:           "HIGH",
+			Note:               "Do not prescribe PDE5 inhibitors.",
+		})
+	}
+	if allergyToNitrates {
+		contraindications = append(contraindications, Contraindication{
+			ConditionOrAllergy: "Nitrate allergy",
+			Severity:           "HIGH",
+			Note:               "Avoid nitrates and PDE5 co-prescribing.",
+		})
+	}
+	if pregnant {
+		contraindications = append(contraindications, Contraindication{
+			ConditionOrAllergy: "Pregnancy",
+			Severity:           "MEDIUM",
+			Note:               "Safety not established; avoid PDE5 inhibitors.",
+		})
+	}
+	if heartDisease {
+		contraindications = append(contraindications, Contraindication{
+			ConditionOrAllergy: "Heart Disease",
+			Severity:           "MEDIUM",
+			Note:               "Assess hemodynamic reserve; prefer low dose or alternative.",
+		})
+	}
+	if hypertension {
+		contraindications = append(contraindications, Contraindication{
+			ConditionOrAllergy: "Hypertension",
+			Severity:           "MEDIUM",
+			Note:               "Monitor BP; start low to avoid hypotension.",
+		})
+	}
+
+	if data.Age >= 65 {
+		dosingConcerns = append(dosingConcerns, DosingConcern{
+			Factor:         "Age >65",
+			Severity:       "MEDIUM",
+			Recommendation: "Initiate at lowest dose; titrate cautiously.",
+		})
+	}
+	if kidneyDisease {
+		dosingConcerns = append(dosingConcerns, DosingConcern{
+			Factor:         "Renal impairment",
+			Severity:       "MEDIUM",
+			Recommendation: "Max 2.5mg-5mg daily; monitor for hypotension.",
+		})
+	}
+	if liverDisease {
+		dosingConcerns = append(dosingConcerns, DosingConcern{
+			Factor:         "Hepatic impairment",
+			Severity:       "MEDIUM",
+			Recommendation: "Use lowest dose; consider avoiding if severe.",
+		})
+	}
+
+	allFindings := len(interactions) + len(contraindications) + len(dosingConcerns)
+	maxSeverity := "LOW"
+	for _, i := range interactions {
+		if i.Severity == "HIGH" {
+			maxSeverity = "HIGH"
+			break
+		}
+		if i.Severity == "MEDIUM" && maxSeverity == "LOW" {
+			maxSeverity = "MEDIUM"
+		}
+	}
+	if maxSeverity != "HIGH" {
+		for _, c := range contraindications {
+			if c.Severity == "HIGH" {
+				maxSeverity = "HIGH"
+				break
+			}
+			if c.Severity == "MEDIUM" && maxSeverity == "LOW" {
+				maxSeverity = "MEDIUM"
+			}
+		}
+	}
+	if maxSeverity != "HIGH" {
+		for _, d := range dosingConcerns {
+			if d.Severity == "MEDIUM" && maxSeverity == "LOW" {
+				maxSeverity = "MEDIUM"
+			}
+		}
+	}
+
+	score := 5
+	for _, i := range interactions {
+		score += severityWeight[i.Severity]
+	}
+	for _, c := range contraindications {
+		score += severityWeight[c.Severity]
+	}
+	for _, d := range dosingConcerns {
+		score += severityWeight[d.Severity]
+	}
+	if score > 100 {
+		score = 100
+	}
+
+	riskLevel := "LOW"
+	if maxSeverity == "HIGH" || score >= 60 {
+		riskLevel = "HIGH"
+	} else if maxSeverity == "MEDIUM" || score >= 30 {
+		riskLevel = "MEDIUM"
+	}
+
+	issues := []string{}
+	for _, i := range interactions {
+		issues = append(issues, fmt.Sprintf("[%s] Interaction: %s - %s", i.Severity, i.Pair, i.Note))
+	}
+	for _, c := range contraindications {
+		issues = append(issues, fmt.Sprintf("[%s] Contraindication: %s - %s", c.Severity, c.ConditionOrAllergy, c.Note))
+	}
+	for _, d := range dosingConcerns {
+		issues = append(issues, fmt.Sprintf("[%s] Dosing: %s - %s", d.Severity, d.Factor, d.Recommendation))
+	}
+	if len(issues) == 0 {
+		issues = append(issues, "None")
+	}
+
+	medication := "Tadalafil"
+	dosage := "5mg Daily"
+	duration := "90 Days"
+	highBlocker := hasSeverity(interactions, "HIGH") || hasSeverityContra(contraindications, "HIGH")
+
+	if highBlocker {
+		medication = "None"
+		dosage = "N/A"
+		duration = "N/A"
+	} else if data.Age >= 65 || kidneyDisease || liverDisease || hasAlphaBlocker || hasCyp3a4 || hypertension || heartDisease {
+		dosage = "2.5mg Daily"
+		duration = "30 Days"
+	}
+
+	rationaleParts := []string{}
+	if medication == "None" {
+		rationaleParts = append(rationaleParts, "Safety blockers present; pharmacotherapy deferred.")
+	} else {
+		rationaleParts = append(rationaleParts, "PDE5 inhibitor indicated; starting conservatively due to risk factors.")
+	}
+	if data.Age >= 65 {
+		rationaleParts = append(rationaleParts, "Age >65")
+	}
+	if kidneyDisease {
+		rationaleParts = append(rationaleParts, "Renal impairment")
+	}
+	if liverDisease {
+		rationaleParts = append(rationaleParts, "Hepatic impairment")
+	}
+	if hasAlphaBlocker {
+		rationaleParts = append(rationaleParts, "Alpha-blocker co-therapy")
+	}
+	if hasCyp3a4 {
+		rationaleParts = append(rationaleParts, "CYP3A4 inhibitor present")
+	}
+	if heartDisease {
+		rationaleParts = append(rationaleParts, "Cardiovascular history")
+	}
+	if pregnant {
+		rationaleParts = append(rationaleParts, "Pregnancy")
+	}
+
+	confidence := 1 - float64(score)/120
+	if confidence < 0.6 {
+		confidence = 0.6
+	}
+
+	result := DiagnosticResult{
+		RiskScore:         score,
+		RiskLevel:         riskLevel,
+		Issues:            issues,
+		Interactions:      interactions,
+		Contraindications: contraindications,
+		DosingConcerns:    dosingConcerns,
+		Plan: Plan{
+			Medication: medication,
+			Dosage:     dosage,
+			Duration:   duration,
+			Rationale:  strings.Join(rationaleParts, "; "),
+		},
+		Alternatives: []string{
+			"Sildenafil 25mg on demand",
+			"Vardenafil 10mg",
+			"Behavioral therapy",
+		},
+		ConfidenceScore: confidence,
+		Source:          "rules",
+	}
+
+	if medication == "None" {
+		result.Alternatives = []string{"Vacuum erection device", "Specialist referral"}
+	}
+
+	if allFindings == 0 {
+		result.RiskScore = 12
+		result.RiskLevel = "LOW"
+	}
+
+	return result
+}
+
+func normalizeList(text string) []string {
+	out := []string{}
+	for _, t := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return r == ',' || r == ';'
+	}) {
+		trimmed := strings.TrimSpace(t)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func hasClassToken(tokens []string, class []string) bool {
+	for _, t := range tokens {
+		for _, drug := range class {
+			if strings.Contains(t, drug) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsString(values []string, target string) bool {
 	for _, v := range values {
-		if strings.EqualFold(v, target) {
+		if v == target {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSeverity(items []Interaction, severity string) bool {
+	for _, i := range items {
+		if i.Severity == severity {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSeverityContra(items []Contraindication, severity string) bool {
+	for _, i := range items {
+		if i.Severity == severity {
 			return true
 		}
 	}
