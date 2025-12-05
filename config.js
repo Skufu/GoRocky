@@ -1,6 +1,6 @@
 // Client runtime configuration for API calls.
-// Override window.__APP_CONFIG.apiBaseUrl at deploy time if the backend is on another origin.
+// Static deploy uses a separate backend origin; point directly to the API host.
 window.__APP_CONFIG = window.__APP_CONFIG || {
-    apiBaseUrl: window.location.origin || 'http://localhost:8080'
+    apiBaseUrl: 'https://gorocky-api.onrender.com'
 };
 
