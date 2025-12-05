@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -72,7 +73,8 @@ func main() {
 		defer db.(interface{ Close() }).Close()
 	}
 
-	router := setupRouter(db)
+	staticRoot := detectStaticRoot()
+	router := setupRouter(db, staticRoot)
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
@@ -132,7 +134,7 @@ func connectDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func setupRouter(db HealthChecker) *gin.Engine {
+func setupRouter(db HealthChecker, staticRoot string) *gin.Engine {
 	router := gin.New()
 	router.Use(
 		gin.Logger(),
@@ -145,6 +147,10 @@ func setupRouter(db HealthChecker) *gin.Engine {
 			MaxAge:       12 * time.Hour,
 		}),
 	)
+
+	// Serve static frontend from repository root under /static and root index.
+	router.Static("/static", staticRoot)
+	router.StaticFile("/", filepath.Join(staticRoot, "index.html"))
 
 	router.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -281,4 +287,33 @@ func limitBodySize(maxBytes int64) gin.HandlerFunc {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
 		c.Next()
 	}
+}
+
+func detectStaticRoot() string {
+	startDir, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+
+	candidates := []string{
+		startDir,
+		filepath.Dir(startDir),
+		filepath.Dir(filepath.Dir(startDir)),
+	}
+
+	for _, dir := range candidates {
+		if fileExists(filepath.Join(dir, "index.html")) {
+			return dir
+		}
+	}
+
+	return startDir
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }

@@ -55,7 +55,7 @@ func TestLoadConfigUsesDefaults(t *testing.T) {
 
 func TestRouterHealthz(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := setupRouter(fakeDB{})
+	router := setupRouter(fakeDB{}, ".")
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/healthz", nil)
