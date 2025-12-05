@@ -1,0 +1,12 @@
+**/node_modules
+**/.git
+**/.github
+**/tmp
+**/bin
+**/dist
+*.env
+*.log
+env.example
+Dockerfile
+docker-compose.yml
+
