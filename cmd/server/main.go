@@ -226,6 +226,9 @@ func setupRouter(db HealthChecker, staticRoot string) *gin.Engine {
 	// Serve static frontend from repository root under /static and root index.
 	router.Static("/static", staticRoot)
 	router.StaticFile("/", filepath.Join(staticRoot, "index.html"))
+	router.StaticFile("/styles.css", filepath.Join(staticRoot, "styles.css"))
+	router.StaticFile("/app.js", filepath.Join(staticRoot, "app.js"))
+	router.StaticFile("/config.js", filepath.Join(staticRoot, "config.js"))
 
 	router.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
