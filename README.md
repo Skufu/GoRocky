@@ -1,4 +1,4 @@
-# GoRocky
+# GoCare
 
 Static clinical UI + Gin backend with a mock diagnostic endpoint, Docker/Compose, and Render deploy config.
 

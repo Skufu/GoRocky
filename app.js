@@ -11,7 +11,7 @@ let reviewedPlan = null;
 
 // The Medical System Prompt - Hard Constraints
 const MEDICAL_PROMPT = `
-        You are GoRocky Clinical AI, a high-precision medical decision support engine.
+        You are GoCare Clinical AI, a high-precision medical decision support engine.
         Analyze the patient intake data and provide a structured JSON treatment plan.
 
         Patient intake fields: name, age, weight, height, BMI, blood pressure, lifestyle (smoking, alcohol, exercise), conditions, medications (with details), allergies, complaint.

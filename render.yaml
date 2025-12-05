@@ -6,6 +6,10 @@
     envVars:
       - key: PORT
         value: 8080
+      - key: GIN_MODE
+        value: release
+      - key: ENABLE_DB
+        value: "false"
       - key: DATABASE_URL
         sync: false
       - key: GEMINI_API_KEY
