@@ -2,6 +2,8 @@
 
 Static clinical UI + Gin backend with a mock diagnostic endpoint, Docker/Compose, and Render deploy config.
 
+- Full API reference: see `API.md` (request/response schema, status codes, examples).
+
 ## Frontend
 - Static files: `index.html`, `styles.css`, `app.js`, `config.js`.
 - Configure API base: set `window.__APP_CONFIG.apiBaseUrl` in `config.js` (defaults to `window.location.origin`).
@@ -14,6 +16,12 @@ Static clinical UI + Gin backend with a mock diagnostic endpoint, Docker/Compose
   - `POST /api/diagnostics/mock` (mock risk output)
   - CORS enabled, 1MB body limit, release mode by default.
 - Env vars: `PORT` (default 8080), `ENABLE_DB` (default false), `DATABASE_URL` (required only when `ENABLE_DB=true`), `GIN_MODE` (release), optional `GEMINI_API_KEY`, `OPENAI_API_KEY`.
+
+## API
+- Base URL defaults to `http://localhost:8080`.
+- No auth; JSON only; CORS allows `*`; ~1MB request limit.
+- Endpoints: `GET /healthz`, `GET /readyz`, `POST /api/diagnostics/mock`.
+- Details, field list, and examples live in `API.md`.
 
 ## Local dev
 ```
