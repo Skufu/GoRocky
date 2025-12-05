@@ -34,6 +34,7 @@ func TestMockAnalyze_Hypertension(t *testing.T) {
 }
 
 func TestLoadConfigRequiresDatabaseURL(t *testing.T) {
+	t.Setenv("ENABLE_DB", "true")
 	t.Setenv("DATABASE_URL", "")
 	if _, err := loadConfig(); err == nil {
 		t.Fatal("expected error when DATABASE_URL is missing")
@@ -41,6 +42,7 @@ func TestLoadConfigRequiresDatabaseURL(t *testing.T) {
 }
 
 func TestLoadConfigUsesDefaults(t *testing.T) {
+	t.Setenv("ENABLE_DB", "false")
 	t.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/test?sslmode=disable")
 	cfg, err := loadConfig()
 	if err != nil {

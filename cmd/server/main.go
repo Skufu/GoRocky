@@ -26,6 +26,7 @@ type Config struct {
 	DatabaseURL  string
 	GeminiAPIKey string
 	OpenAIAPIKey string
+	EnableDB     bool
 }
 
 type PatientData struct {
@@ -62,11 +63,14 @@ func main() {
 	}
 
 	ctx := context.Background()
-	db, err := connectDB(ctx, cfg.DatabaseURL)
-	if err != nil {
-		log.Fatalf("database connection failed: %v", err)
+	var db HealthChecker
+	if cfg.EnableDB {
+		db, err = connectDB(ctx, cfg.DatabaseURL)
+		if err != nil {
+			log.Fatalf("database connection failed: %v", err)
+		}
+		defer db.(interface{ Close() }).Close()
 	}
-	defer db.Close()
 
 	router := setupRouter(db)
 	server := &http.Server{
@@ -96,10 +100,11 @@ func loadConfig() (*Config, error) {
 		DatabaseURL:  os.Getenv("DATABASE_URL"),
 		GeminiAPIKey: os.Getenv("GEMINI_API_KEY"),
 		OpenAIAPIKey: os.Getenv("OPENAI_API_KEY"),
+		EnableDB:     strings.EqualFold(getEnv("ENABLE_DB", "false"), "true"),
 	}
 
-	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL is required")
+	if cfg.EnableDB && cfg.DatabaseURL == "" {
+		return nil, fmt.Errorf("DATABASE_URL is required when ENABLE_DB=true")
 	}
 
 	return cfg, nil
@@ -142,12 +147,26 @@ func setupRouter(db HealthChecker) *gin.Engine {
 	)
 
 	router.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	router.GET("/readyz", func(c *gin.Context) {
+		if db == nil {
+			c.JSON(http.StatusOK, gin.H{"status": "ok", "db": "disabled"})
+			return
+		}
+
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
 
 		dbStatus := "ok"
 		if err := db.Ping(ctx); err != nil {
 			dbStatus = fmt.Sprintf("unhealthy: %v", err)
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "degraded",
+				"db":     dbStatus,
+			})
+			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{

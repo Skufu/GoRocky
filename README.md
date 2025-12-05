@@ -9,10 +9,11 @@ Static clinical UI + Gin backend with a mock diagnostic endpoint, Docker/Compose
 
 ## Backend
 - Gin server (`cmd/server/main.go`) with:
-  - `GET /healthz` (DB ping)
+  - `GET /healthz` (liveness)
+  - `GET /readyz` (DB ping when enabled)
   - `POST /api/diagnostics/mock` (mock risk output)
   - CORS enabled, 1MB body limit, release mode by default.
-- Env vars: `PORT` (default 8080), `DATABASE_URL` (required), `GIN_MODE` (release), optional `GEMINI_API_KEY`, `OPENAI_API_KEY`.
+- Env vars: `PORT` (default 8080), `ENABLE_DB` (default false), `DATABASE_URL` (required only when `ENABLE_DB=true`), `GIN_MODE` (release), optional `GEMINI_API_KEY`, `OPENAI_API_KEY`.
 
 ## Local dev
 ```
@@ -23,9 +24,10 @@ or
 docker-compose up --build
 ```
 
-Health check:
+Health / readiness:
 ```
 curl http://localhost:8080/healthz
+curl http://localhost:8080/readyz
 ```
 
 Mock diagnostics:
@@ -50,7 +52,7 @@ make db-migrate-down
 ```
 
 ## Deploy (Render)
-- Backend: Render Blueprint reads `render.yaml` (Docker runtime). Set env vars in the dashboard: `DATABASE_URL`, `PORT=8080`, `GIN_MODE=release`, optional API keys.
+- Backend: Render Blueprint reads `render.yaml` (Docker runtime). Set env vars in the dashboard: `PORT=8080`, `GIN_MODE=release`, `ENABLE_DB` (true/false). When `ENABLE_DB=true`, also set `DATABASE_URL`; optional API keys.
 - Frontend: host static files (Render Static Site, Netlify, Vercel). Set `apiBaseUrl` in `config.js` to the backend URL.
 
 ## Docker
