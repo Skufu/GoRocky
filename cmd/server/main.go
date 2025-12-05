@@ -31,14 +31,21 @@ type Config struct {
 }
 
 type PatientData struct {
-	Name        string   `json:"name"`
-	Weight      float64  `json:"weight"`
-	Height      float64  `json:"height"`
-	Age         int      `json:"age"`
-	Conditions  []string `json:"conditions"`
-	Medications string   `json:"medications"`
-	Allergies   string   `json:"allergies"`
-	Complaint   string   `json:"complaint"`
+	Name              string   `json:"name"`
+	Weight            float64  `json:"weight"`
+	Height            float64  `json:"height"`
+	Age               int      `json:"age"`
+	BMI               float64  `json:"bmi"`
+	BPSystolic        float64  `json:"bpSystolic"`
+	BPDiastolic       float64  `json:"bpDiastolic"`
+	Smoking           string   `json:"smoking"`
+	Alcohol           string   `json:"alcohol"`
+	Exercise          string   `json:"exercise"`
+	Conditions        []string `json:"conditions"`
+	Medications       string   `json:"medications"`
+	MedicationDetails string   `json:"medicationDetails"`
+	Allergies         string   `json:"allergies"`
+	Complaint         string   `json:"complaint"`
 }
 
 type Plan struct {
@@ -49,16 +56,17 @@ type Plan struct {
 }
 
 type DiagnosticResult struct {
-	RiskScore         int                `json:"riskScore"`
-	RiskLevel         string             `json:"riskLevel"`
-	Issues            []string           `json:"issues"`
-	Interactions      []Interaction      `json:"interactions"`
-	Contraindications []Contraindication `json:"contraindications"`
-	DosingConcerns    []DosingConcern    `json:"dosingConcerns"`
-	Plan              Plan               `json:"plan"`
-	Alternatives      []string           `json:"alternatives"`
-	ConfidenceScore   float64            `json:"confidenceScore"`
-	Source            string             `json:"source"`
+	RiskScore                int                      `json:"riskScore"`
+	RiskLevel                string                   `json:"riskLevel"`
+	Issues                   []string                 `json:"issues"`
+	Interactions             []Interaction            `json:"interactions"`
+	Contraindications        []Contraindication       `json:"contraindications"`
+	DosingConcerns           []DosingConcern          `json:"dosingConcerns"`
+	Plan                     Plan                     `json:"plan"`
+	Alternatives             []Alternative            `json:"alternatives"`
+	ConfidenceScore          float64                  `json:"confidenceScore"`
+	RecommendationConfidence RecommendationConfidence `json:"recommendationConfidence"`
+	Source                   string                   `json:"source"`
 }
 
 type Interaction struct {
@@ -79,17 +87,48 @@ type DosingConcern struct {
 	Recommendation string `json:"recommendation"`
 }
 
+type Alternative struct {
+	Option     string  `json:"option"`
+	Confidence float64 `json:"confidence"`
+}
+
+type RecommendationConfidence struct {
+	Plan float64 `json:"plan"`
+}
+
 var (
 	pde5iClass        = []string{"sildenafil", "tadalafil", "vardenafil", "avanafil"}
 	nitrateClass      = []string{"nitroglycerin", "isosorbide", "isosorbide dinitrate", "isosorbide mononitrate"}
 	alphaBlockerClass = []string{"tamsulosin", "doxazosin", "terazosin", "alfuzosin"}
 	cyp3a4Class       = []string{"ketoconazole", "itraconazole", "ritonavir", "cobicistat", "clarithromycin"}
-	severityWeight    = map[string]int{
+	ruleDB            = []Rule{
+		{ID: "nitrates+pde5i", Type: "interaction", Severity: "HIGH", Match: RuleMatch{DrugClassA: "nitrates", DrugClassB: "pde5i"}, Note: "Risk of profound hypotension; avoid co-administration."},
+		{ID: "alpha+pde5i", Type: "interaction", Severity: "MEDIUM", Match: RuleMatch{DrugClassA: "alphaBlockers", DrugClassB: "pde5i"}, Note: "Additive hypotension; separate dosing and start low."},
+		{ID: "cyp3a4+pde5i", Type: "interaction", Severity: "MEDIUM", Match: RuleMatch{DrugClassA: "cyp3a4Inhibitors", DrugClassB: "pde5i"}, Note: "Higher PDE5i levels; use lowest dose and monitor."},
+		{ID: "pregnancy+pde5i", Type: "contra", Severity: "MEDIUM", Match: RuleMatch{Condition: "pregnant", RequiresDrugClass: "pde5i"}, Note: "Safety in pregnancy not established; avoid PDE5 inhibitors."},
+		{ID: "renal+pde5i", Type: "dosing", Severity: "MEDIUM", Match: RuleMatch{Condition: "kidney disease"}, Note: "Max 2.5-5mg daily; monitor closely."},
+	}
+	severityWeight = map[string]int{
 		"HIGH":   40,
 		"MEDIUM": 20,
 		"LOW":    10,
 	}
 )
+
+type Rule struct {
+	ID       string    `json:"id"`
+	Type     string    `json:"type"` // interaction|contra|dosing
+	Severity string    `json:"severity"`
+	Match    RuleMatch `json:"match"`
+	Note     string    `json:"note"`
+}
+
+type RuleMatch struct {
+	DrugClassA        string `json:"drugClassA"`
+	DrugClassB        string `json:"drugClassB"`
+	Condition         string `json:"condition"`
+	RequiresDrugClass string `json:"requiresDrugClass"`
+}
 
 func main() {
 	gin.SetMode(getEnv("GIN_MODE", "release"))
@@ -248,6 +287,12 @@ func runSafetyEngine(data PatientData) DiagnosticResult {
 	hasNitrates := hasClassToken(meds, nitrateClass)
 	hasAlphaBlocker := hasClassToken(meds, alphaBlockerClass)
 	hasCyp3a4 := hasClassToken(meds, cyp3a4Class)
+	bpSys := data.BPSystolic
+	bpDia := data.BPDiastolic
+	bmi := data.BMI
+	smoking := strings.ToLower(strings.TrimSpace(data.Smoking))
+	alcohol := strings.ToLower(strings.TrimSpace(data.Alcohol))
+	exercise := strings.ToLower(strings.TrimSpace(data.Exercise))
 
 	pregnant := containsString(conditions, "pregnant")
 	kidneyDisease := containsString(conditions, "kidney disease")
@@ -284,11 +329,55 @@ func runSafetyEngine(data PatientData) DiagnosticResult {
 		})
 	}
 
+	for _, rule := range ruleDB {
+		switch rule.Type {
+		case "interaction":
+			if hasClassTokenByName(meds, rule.Match.DrugClassA) && hasClassTokenByName(meds, rule.Match.DrugClassB) {
+				interactions = append(interactions, Interaction{
+					Pair:     fmt.Sprintf("%s+%s", rule.Match.DrugClassA, rule.Match.DrugClassB),
+					Severity: rule.Severity,
+					Note:     rule.Note,
+				})
+			}
+		case "contra":
+			condMatch := rule.Match.Condition != "" && containsString(conditions, rule.Match.Condition)
+			drugMatch := rule.Match.RequiresDrugClass == "" || hasClassTokenByName(meds, rule.Match.RequiresDrugClass)
+			if condMatch && drugMatch {
+				contraindications = append(contraindications, Contraindication{
+					ConditionOrAllergy: rule.Match.Condition,
+					Severity:           rule.Severity,
+					Note:               rule.Note,
+				})
+			}
+		case "dosing":
+			if rule.Match.Condition != "" && containsString(conditions, rule.Match.Condition) {
+				dosingConcerns = append(dosingConcerns, DosingConcern{
+					Factor:         rule.Match.Condition,
+					Severity:       rule.Severity,
+					Recommendation: rule.Note,
+				})
+			}
+		}
+	}
+
 	if hasNitrates {
 		contraindications = append(contraindications, Contraindication{
 			ConditionOrAllergy: "Nitrate therapy",
 			Severity:           "HIGH",
 			Note:               "Concurrent nitrate use contraindicates PDE5 inhibitors due to hypotension risk.",
+		})
+	}
+	if bpSys >= 170 || bpDia >= 110 {
+		contraindications = append(contraindications, Contraindication{
+			ConditionOrAllergy: "Severely elevated BP",
+			Severity:           "HIGH",
+			Note:               "Uncontrolled hypertension; PDE5 inhibitors contraindicated.",
+		})
+	} else if bpSys >= 150 || bpDia >= 95 {
+		contraindications = append(contraindications, Contraindication{
+			ConditionOrAllergy: "Elevated BP",
+			Severity:           "MEDIUM",
+			Note:               "Elevated blood pressure; use lowest dose and monitor.",
 		})
 	}
 	if allergyToPde5i {
@@ -346,6 +435,40 @@ func runSafetyEngine(data PatientData) DiagnosticResult {
 			Factor:         "Hepatic impairment",
 			Severity:       "MEDIUM",
 			Recommendation: "Use lowest dose; consider avoiding if severe.",
+		})
+	}
+	if bmi >= 35 {
+		dosingConcerns = append(dosingConcerns, DosingConcern{
+			Factor:         "Obesity (BMI ≥35)",
+			Severity:       "MEDIUM",
+			Recommendation: "Start lowest dose; monitor cardiovascular tolerance.",
+		})
+	} else if bmi >= 30 {
+		dosingConcerns = append(dosingConcerns, DosingConcern{
+			Factor:         "Overweight (BMI ≥30)",
+			Severity:       "LOW",
+			Recommendation: "Start low; encourage weight management and monitoring.",
+		})
+	}
+	if smoking == "current" {
+		dosingConcerns = append(dosingConcerns, DosingConcern{
+			Factor:         "Smoking",
+			Severity:       "LOW",
+			Recommendation: "Counsel cessation; monitor CV risk with therapy.",
+		})
+	}
+	if alcohol == "heavy" {
+		dosingConcerns = append(dosingConcerns, DosingConcern{
+			Factor:         "Heavy alcohol use",
+			Severity:       "MEDIUM",
+			Recommendation: "Avoid concurrent dosing; monitor BP and sedation risk.",
+		})
+	}
+	if exercise == "none" {
+		dosingConcerns = append(dosingConcerns, DosingConcern{
+			Factor:         "Sedentary",
+			Severity:       "LOW",
+			Recommendation: "Encourage activity; monitor cardiometabolic risk.",
 		})
 	}
 
@@ -461,6 +584,20 @@ func runSafetyEngine(data PatientData) DiagnosticResult {
 		confidence = 0.6
 	}
 
+	planConfidence := confidence
+	alternatives := []Alternative{
+		{Option: "Sildenafil 25mg on demand", Confidence: 0.7},
+		{Option: "Vardenafil 10mg", Confidence: 0.65},
+		{Option: "Behavioral therapy", Confidence: 0.6},
+	}
+	if medication == "None" {
+		alternatives = []Alternative{
+			{Option: "Vacuum erection device", Confidence: 0.65},
+			{Option: "Specialist referral", Confidence: 0.7},
+		}
+		planConfidence = 0.4
+	}
+
 	result := DiagnosticResult{
 		RiskScore:         score,
 		RiskLevel:         riskLevel,
@@ -474,17 +611,10 @@ func runSafetyEngine(data PatientData) DiagnosticResult {
 			Duration:   duration,
 			Rationale:  strings.Join(rationaleParts, "; "),
 		},
-		Alternatives: []string{
-			"Sildenafil 25mg on demand",
-			"Vardenafil 10mg",
-			"Behavioral therapy",
-		},
-		ConfidenceScore: confidence,
-		Source:          "rules",
-	}
-
-	if medication == "None" {
-		result.Alternatives = []string{"Vacuum erection device", "Specialist referral"}
+		Alternatives:             alternatives,
+		ConfidenceScore:          confidence,
+		RecommendationConfidence: RecommendationConfidence{Plan: planConfidence},
+		Source:                   "rules",
 	}
 
 	if allFindings == 0 {
@@ -517,6 +647,21 @@ func hasClassToken(tokens []string, class []string) bool {
 		}
 	}
 	return false
+}
+
+func hasClassTokenByName(tokens []string, className string) bool {
+	switch className {
+	case "pde5i":
+		return hasClassToken(tokens, pde5iClass)
+	case "nitrates":
+		return hasClassToken(tokens, nitrateClass)
+	case "alphaBlockers":
+		return hasClassToken(tokens, alphaBlockerClass)
+	case "cyp3a4Inhibitors":
+		return hasClassToken(tokens, cyp3a4Class)
+	default:
+		return false
+	}
 }
 
 func containsString(values []string, target string) bool {

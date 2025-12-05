@@ -27,9 +27,32 @@ func TestMockAnalyze_Nitro(t *testing.T) {
 }
 
 func TestMockAnalyze_Hypertension(t *testing.T) {
-	result := mockAnalyze(PatientData{Conditions: []string{"Hypertension"}})
+	result := mockAnalyze(PatientData{Conditions: []string{"Hypertension"}, BPSystolic: 140, BPDiastolic: 90})
 	if result.RiskLevel != "MEDIUM" || !strings.Contains(result.Plan.Dosage, "2.5mg") {
 		t.Fatalf("expected medium risk and low dose, got %+v", result)
+	}
+}
+
+func TestMockAnalyze_SevereBP(t *testing.T) {
+	result := mockAnalyze(PatientData{BPSystolic: 180, BPDiastolic: 115})
+	if result.RiskLevel != "HIGH" {
+		t.Fatalf("expected high risk for severe BP, got %+v", result)
+	}
+	if !containsIssue(result.Issues, "Severely elevated BP") {
+		t.Fatalf("expected elevated BP contraindication, got %+v", result.Issues)
+	}
+}
+
+func TestMockAnalyze_BMIAndLifestyle(t *testing.T) {
+	result := mockAnalyze(PatientData{BMI: 36, Smoking: "current", Alcohol: "heavy"})
+	if !containsIssue(result.Issues, "BMI") {
+		t.Fatalf("expected BMI dosing issue, got %+v", result.Issues)
+	}
+	if !containsIssue(result.Issues, "Smoking") {
+		t.Fatalf("expected smoking issue, got %+v", result.Issues)
+	}
+	if !containsIssue(result.Issues, "Heavy alcohol") {
+		t.Fatalf("expected alcohol issue, got %+v", result.Issues)
 	}
 }
 
@@ -109,4 +132,13 @@ func TestLimitBodySizeContextDeadline(t *testing.T) {
 	if err := ctx.Err(); err != nil && err != context.DeadlineExceeded {
 		t.Fatalf("unexpected context error: %v", err)
 	}
+}
+
+func containsIssue(issues []string, substr string) bool {
+	for _, i := range issues {
+		if strings.Contains(i, substr) {
+			return true
+		}
+	}
+	return false
 }

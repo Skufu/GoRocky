@@ -109,7 +109,7 @@
                         <input type="text" id="p-name" class="input-field" placeholder="Enter name...">
                     </div>
 
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 32px;">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px;">
                         <div class="input-group">
                             <label class="input-label">WEIGHT (KG)</label>
                             <input type="number" id="p-weight" class="input-field" placeholder="00">
@@ -121,6 +121,51 @@
                         <div class="input-group">
                             <label class="input-label">AGE (YEARS)</label>
                             <input type="number" id="p-age" class="input-field" placeholder="00">
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px;">
+                        <div class="input-group">
+                            <label class="input-label">BP SYSTOLIC (mmHg)</label>
+                            <input type="number" id="p-bp-sys" class="input-field" placeholder="120">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">BP DIASTOLIC (mmHg)</label>
+                            <input type="number" id="p-bp-dia" class="input-field" placeholder="80">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">BMI (auto-calculated)</label>
+                            <input type="number" id="p-bmi" class="input-field" placeholder="--" readonly>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px;">
+                        <div class="input-group">
+                            <label class="input-label">SMOKING STATUS</label>
+                            <select id="p-smoking" class="input-select">
+                                <option value="">Select...</option>
+                                <option value="never">Never</option>
+                                <option value="former">Former</option>
+                                <option value="current">Current</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">ALCOHOL USE</label>
+                            <select id="p-alcohol" class="input-select">
+                                <option value="">Select...</option>
+                                <option value="none">None</option>
+                                <option value="light">Light</option>
+                                <option value="moderate">Moderate</option>
+                                <option value="heavy">Heavy</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">EXERCISE</label>
+                            <select id="p-exercise" class="input-select">
+                                <option value="">Select...</option>
+                                <option value="none">None</option>
+                                <option value="1-2x/week">1-2x/week</option>
+                                <option value="3-5x/week">3-5x/week</option>
+                                <option value="daily">Daily</option>
+                            </select>
                         </div>
                     </div>
 
@@ -157,6 +202,10 @@
                     <div class="input-group">
                         <label class="input-label">ACTIVE MEDICATIONS</label>
                         <input type="text" id="p-meds" class="input-field" placeholder="List medications...">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">MEDICATION DETAILS (DOSE/FREQ)</label>
+                        <input type="text" id="p-meds-detail" class="input-field" placeholder="e.g. Metoprolol 50mg BID">
                     </div>
 
                     <div class="input-group">
@@ -250,10 +299,45 @@
 
                 <div class="fade-in-up delay-3" style="margin-top: 40px; display: flex; justify-content: flex-end; gap: 16px;">
                     <button class="btn btn-secondary" onclick="reset()">REVISE INPUTS</button>
-                    <button class="btn btn-primary" onclick="finalize()">
-                        AUTHORIZE RX
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+                    <button class="btn btn-primary" onclick="startReview()">
+                        DOCTOR REVIEW
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                     </button>
+                </div>
+            </div>
+
+            <!-- STEP 4: DOCTOR REVIEW -->
+            <div id="step-review" style="display:none;">
+                <h2 style="font-family: var(--font-tech); font-size: 1rem; margin-bottom: 16px; color: var(--ink-secondary);">DOCTOR REVIEW & EDIT</h2>
+                <div class="dossier-card" style="padding:32px;">
+                    <div class="input-group">
+                        <label class="input-label">REVIEWER NAME</label>
+                        <input type="text" id="reviewer-name" class="input-field" placeholder="Dr. Smith">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">MEDICATION</label>
+                        <input type="text" id="review-med" class="input-field">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">DOSAGE</label>
+                        <input type="text" id="review-dose" class="input-field">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">DURATION</label>
+                        <input type="text" id="review-duration" class="input-field">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">RATIONALE</label>
+                        <textarea id="review-rationale" class="input-field" rows="3"></textarea>
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">PLAN CONFIDENCE (0-1)</label>
+                        <input type="number" step="0.01" min="0" max="1" id="review-confidence" class="input-field">
+                    </div>
+                    <div style="display:flex; justify-content:flex-end; gap:12px;">
+                        <button class="btn btn-secondary" onclick="backToResults()">BACK</button>
+                        <button class="btn btn-primary" onclick="finalizeReview()">FINALIZE SUMMARY</button>
+                    </div>
                 </div>
             </div>
 
