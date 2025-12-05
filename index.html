@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GoRocky - Clinical Command v3.2</title>
+    
+    <!-- Distinctive Typography: Fraunces (Human/Serif) + JetBrains Mono (Technical) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;400;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- =========================
+         LANDING VIEW
+         ========================= -->
+    <div id="view-landing" class="view-container active">
+        <nav class="nav-strip">
+            <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-family: var(--font-human); font-weight: 800; font-size: 1.25rem; display: flex; align-items: center; gap: 8px;">
+                    <div style="width: 16px; height: 16px; background: var(--brand-orange); border-radius: 50%;"></div>
+                    GoRocky<span style="font-family: var(--font-tech); font-weight: 400; font-size: 0.8rem; margin-top: 4px; opacity: 0.6;">_CLINICAL</span>
+                </div>
+                <button class="btn-ghost" onclick="switchView('app')">[ PROVIDER LOGIN ]</button>
+            </div>
+        </nav>
+
+        <section class="hero-section container">
+            <div class="hero-content">
+                <div class="tech-tag fade-in-up">System Online v3.2</div>
+                <h1 class="hero-title">
+                    <div style="display:block; animation: fadeInUp 0.8s var(--ease-snap) forwards;">Clinical</div>
+                    <div style="display:block; animation: fadeInUp 0.8s var(--ease-snap) 0.1s forwards; opacity:0; transform:translateY(100%);">Intelligence,</div>
+                    <div style="display:block; animation: fadeInUp 0.8s var(--ease-snap) 0.2s forwards; opacity:0; transform:translateY(100%);"><span style="color: var(--brand-orange); font-style: italic;">Verified.</span></div>
+                </h1>
+                <p class="fade-in-up delay-3" style="font-size: 1.25rem; margin-bottom: 48px; max-width: 500px; font-family: var(--font-tech); color: var(--ink-secondary);">
+                    Multi-LLM consensus engine for high-stakes medical decisions. Automated DDI checks & contraindication flags in real-time.
+                </p>
+                <div class="fade-in-up delay-4" style="display: flex; gap: 16px; flex-wrap: wrap; margin-left: 24px;">
+                    <button class="btn btn-primary" onclick="switchView('app')">
+                        Initialize Intake
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="hero-visual fade-in-up delay-2" style="flex: 1; display: flex; justify-content: center;">
+                <div class="dossier-card" style="width: 100%; max-width: 380px; transform: rotate(-2deg);">
+                    <div style="border-bottom: var(--border-thick); padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between;">
+                        <span class="tech-tag">CONFIDENTIAL</span>
+                        <span style="font-family: var(--font-tech);">CASE #8821</span>
+                    </div>
+                    <div style="margin-bottom: 24px;">
+                        <div style="font-family: var(--font-human); font-size: 1.5rem; font-weight: 600;">Risk Analysis</div>
+                        <div style="font-family: var(--font-tech); color: var(--status-success);">NO CONTRAINDICATIONS</div>
+                    </div>
+                    <div style="display: flex; gap: 4px; margin-bottom: 32px;">
+                        <div style="height: 8px; width: 20%; background: var(--brand-orange);"></div>
+                        <div style="height: 8px; width: 80%; background: var(--ink-tertiary); opacity: 0.2;"></div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div style="width: 48px; height: 48px; background: var(--ink-primary); border-radius: 50%;"></div>
+                        <div style="font-family: var(--font-tech); font-size: 0.8rem;">
+                            VERIFIED BY<br>
+                            <strong>GEMINI + GPT-4</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- =========================
+         APP VIEW
+         ========================= -->
+    <div id="view-app" class="view-container">
+        <div class="app-layout container">
+            
+            <!-- Header -->
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 48px; border-bottom: var(--border-thick); padding-bottom: 16px;">
+                <div class="fade-in-up">
+                    <button class="btn-ghost" onclick="switchView('landing')" style="padding-left: 0; margin-bottom: 8px;">&larr; ABORT SESSION</button>
+                    <h2 style="font-size: 2rem; margin: 0;">Patient Dossier</h2>
+                </div>
+                <div style="font-family: var(--font-tech); text-align: right;" class="fade-in-up delay-1">
+                    STATUS: <span style="color: var(--brand-orange);">ACTIVE</span><br>
+                    <button class="btn-ghost" onclick="openSettings()" style="padding:0; text-decoration: underline;">CONFIGURE MODELS</button>
+                </div>
+            </div>
+
+            <!-- STEP 1: INTAKE FORM -->
+            <div id="step-intake" class="fade-in-up delay-2">
+                <div class="dossier-card" style="padding: 48px;">
+                    <div class="scanner-line" id="scanner"></div>
+                    
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 40px;">
+                        <div class="tech-tag">SECTION 1: PHYSIOLOGICAL DATA</div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn-ghost" style="font-size: 0.75rem; border: var(--border-thin);" onclick="prefill('standard')">LOAD STANDARD</button>
+                            <button class="btn-ghost" style="font-size: 0.75rem; border: var(--border-thin); color: var(--status-error);" onclick="prefill('high')">LOAD HIGH RISK</button>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label">FULL LEGAL NAME</label>
+                        <input type="text" id="p-name" class="input-field" placeholder="Enter name...">
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 32px;">
+                        <div class="input-group">
+                            <label class="input-label">WEIGHT (KG)</label>
+                            <input type="number" id="p-weight" class="input-field" placeholder="00">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">HEIGHT (CM)</label>
+                            <input type="number" id="p-height" class="input-field" placeholder="000">
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label">DIAGNOSED CONDITIONS</label>
+                        <div class="selection-grid">
+                            <label class="selection-card">
+                                <input type="checkbox" value="Hypertension">
+                                <span class="selection-visual">HYPERTENSION</span>
+                            </label>
+                            <label class="selection-card">
+                                <input type="checkbox" value="Diabetes">
+                                <span class="selection-visual">DIABETES</span>
+                            </label>
+                            <label class="selection-card">
+                                <input type="checkbox" value="Heart Disease">
+                                <span class="selection-visual">HEART DISEASE</span>
+                            </label>
+                            <label class="selection-card">
+                                <input type="checkbox" value="Kidney Disease">
+                                <span class="selection-visual">KIDNEY ISSUES</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label">ACTIVE MEDICATIONS</label>
+                        <input type="text" id="p-meds" class="input-field" placeholder="List medications...">
+                    </div>
+                    
+                     <div class="input-group">
+                        <label class="input-label">PRIMARY COMPLAINT</label>
+                        <input type="text" id="p-complaint" class="input-field" placeholder="e.g. ED, Hair Loss...">
+                    </div>
+                    
+                    <div style="border-top: 1px dashed var(--ink-tertiary); margin-top: 32px; padding-top: 24px; display: flex; justify-content: flex-end; align-items: center; gap: 16px;">
+                        <div style="font-family: var(--font-tech); font-size: 0.8rem; color: var(--ink-secondary);">ACTIVE MODEL: <span id="model-display" style="font-weight: 700;">MOCK</span></div>
+                        <button class="btn btn-primary" onclick="initiateAnalysis()">
+                            Run Diagnostics
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STEP 2: PROCESSING (TERMINAL) -->
+            <div id="step-processing" style="display: none;">
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <h3 style="font-family: var(--font-tech);">PROCESSING CLINICAL VECTORS...</h3>
+                </div>
+                <div class="terminal-log" id="terminal-log">
+                    <!-- Logs injected here -->
+                </div>
+            </div>
+
+            <!-- STEP 3: RESULTS -->
+            <div id="step-results" style="display: none;">
+                <h2 style="font-family: var(--font-tech); font-size: 1rem; margin-bottom: 16px; color: var(--ink-secondary);">DIAGNOSTIC OUTPUT</h2>
+                
+                <div id="risk-output" class="fade-in-up">
+                    <!-- Injected -->
+                </div>
+
+                <div class="fade-in-up delay-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px;">
+                    
+                    <!-- FLAGS PANEL -->
+                    <div class="dossier-card warning-panel" style="padding: 32px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                            <div class="tech-tag" style="background: var(--status-warning); color: var(--ink-primary); border: 2px solid var(--ink-primary);">CLINICAL ALERTS</div>
+                            <svg style="color: var(--status-warning);" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        </div>
+                        <ul id="issue-list" class="clinical-list">
+                            <!-- Injected -->
+                        </ul>
+                    </div>
+
+                    <!-- RECOMMENDATION PANEL -->
+                    <div class="dossier-card" style="padding: 32px; border-color: var(--brand-orange);">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:24px;">
+                            <div class="tech-tag" style="background: var(--brand-orange); color: white; border: none;">TREATMENT PLAN</div>
+                            <div class="stamp-box" id="confidence-score">CONF: --%</div>
+                        </div>
+                        
+                        <div id="plan-output" class="prescription-text">
+                            <!-- Injected -->
+                        </div>
+                        
+                        <div class="rationale-box">
+                            <span class="label" style="font-family: var(--font-tech); font-size: 0.7rem; font-weight: 700; color: var(--ink-secondary); display: block; margin-bottom: 4px; font-style: normal;">CLINICAL RATIONALE:</span>
+                            <p id="rationale-output" style="margin: 0;"></p>
+                        </div>
+                        
+                        <div style="margin-top: 24px; padding-top: 24px; border-top: 2px dashed var(--ink-tertiary);">
+                            <div class="input-label">ALTERNATIVES</div>
+                            <ul id="alternatives-list" style="font-family: var(--font-tech); font-size: 0.8rem; padding-left: 20px;"></ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="fade-in-up delay-3" style="margin-top: 40px; display: flex; justify-content: flex-end; gap: 16px;">
+                    <button class="btn btn-secondary" onclick="reset()">REVISE INPUTS</button>
+                    <button class="btn btn-primary" onclick="finalize()">
+                        AUTHORIZE RX
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- STEP 4: SUCCESS / AUDIT -->
+            <div id="step-success" style="display: none; text-align: center; padding: 60px 0;">
+                <div style="width: 120px; height: 120px; background: var(--ink-primary); color: var(--bg-paper); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 32px;">
+                    <svg style="width: 60px; height: 60px; stroke-dasharray: 100; stroke-dashoffset: 100; animation: checkDraw 1s 0.2s forwards;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <h2 class="fade-in-up delay-1" style="font-size: 2.5rem; margin-bottom: 8px;">Authorized</h2>
+                <p class="fade-in-up delay-2" style="font-family: var(--font-tech); color: var(--ink-secondary); margin-bottom: 48px;">
+                    TRANSACTION COMMITTED TO LEDGER.
+                </p>
+                
+                <div class="dossier-card fade-in-up delay-3" style="max-width: 600px; margin: 0 auto; text-align: left; padding: 24px;">
+                    <h3 style="font-size: 1rem; margin-bottom: 16px; border-bottom: 1px solid var(--ink-tertiary); padding-bottom: 8px;">IMMUTABLE AUDIT LOG</h3>
+                    <div id="audit-log-container">
+                        <!-- Audit Logs Here -->
+                    </div>
+                </div>
+
+                <button class="btn btn-secondary fade-in-up delay-4" style="margin-top: 40px;" onclick="reset()">NEXT CASE FILE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SETTINGS MODAL -->
+    <div id="settings-modal">
+        <div class="modal-content">
+            <h3 style="margin-bottom: 24px;">ENGINE CONFIGURATION</h3>
+            
+            <div class="input-group">
+                <label class="input-label">ACTIVE MODEL</label>
+                <select id="model-selector" class="input-select" onchange="updateModelDisplay()">
+                    <option value="gemini">GOOGLE GEMINI 2.5 FLASH</option>
+                    <option value="openai">OPENAI GPT-4o / TURBO</option>
+                    <option value="mock" selected>LOCAL SIMULATION (OFFLINE)</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">GEMINI API KEY</label>
+                <input type="password" id="key-gemini" class="input-field" placeholder="Enter Gemini Key">
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">OPENAI API KEY</label>
+                <input type="password" id="key-openai" class="input-field" placeholder="Enter OpenAI Key">
+            </div>
+
+            <div style="text-align: right; margin-top: 32px;">
+                <button class="btn btn-primary" onclick="saveSettings()">SAVE CONFIGURATION</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js" defer></script>
+</body>
+</html>
