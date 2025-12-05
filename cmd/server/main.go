@@ -11,10 +11,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
+
+type HealthChecker interface {
+	Ping(ctx context.Context) error
+}
 
 type Config struct {
 	Port         string
@@ -49,6 +54,8 @@ type DiagnosticResult struct {
 }
 
 func main() {
+	gin.SetMode(getEnv("GIN_MODE", "release"))
+
 	cfg, err := loadConfig()
 	if err != nil {
 		log.Fatalf("config error: %v", err)
@@ -63,8 +70,12 @@ func main() {
 
 	router := setupRouter(db)
 	server := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: router,
+		Addr:              ":" + cfg.Port,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {
@@ -116,9 +127,19 @@ func connectDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func setupRouter(db *pgxpool.Pool) *gin.Engine {
+func setupRouter(db HealthChecker) *gin.Engine {
 	router := gin.New()
-	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(
+		gin.Logger(),
+		gin.Recovery(),
+		limitBodySize(1<<20), // 1MB max body
+		cors.New(cors.Config{
+			AllowOrigins: []string{"*"},
+			AllowMethods: []string{"GET", "POST", "OPTIONS"},
+			AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
+			MaxAge:       12 * time.Hour,
+		}),
+	)
 
 	router.GET("/healthz", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
@@ -234,4 +255,11 @@ func getEnv(key, fallback string) string {
 		return val
 	}
 	return fallback
+}
+
+func limitBodySize(maxBytes int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		c.Next()
+	}
 }

@@ -1,4 +1,5 @@
 // CONFIG & STATE
+const API_BASE = (window.__APP_CONFIG?.apiBaseUrl || window.location.origin).replace(/\/$/, '');
 let apiKeys = {
     gemini: '',
     openai: ''
@@ -172,9 +173,8 @@ async function analyze() {
             await addLog("CONNECTING TO OPENAI GPT-4...");
             result = await callOpenAI(currentPatientData);
         } else {
-            await addLog("RUNNING LOCAL SIMULATION...");
-            await new Promise(r => setTimeout(r, 1000));
-            result = mockAnalyze(currentPatientData);
+            await addLog(`DISPATCHING TO BACKEND @ ${API_BASE}/api/diagnostics/mock ...`);
+            result = await callBackendMock(currentPatientData);
         }
 
         await addLog("VALIDATING JSON SCHEMA...");
@@ -199,6 +199,19 @@ async function analyze() {
 }
 
 // API FUNCTIONS
+async function callBackendMock(patientData) {
+    const response = await fetch(`${API_BASE}/api/diagnostics/mock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patientData)
+    });
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Backend error (${response.status}): ${text}`);
+    }
+    return await response.json();
+}
+
 async function callGemini(patientData) {
     const prompt = `Patient Data: ${JSON.stringify(patientData)}`;
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKeys.gemini}`, {
