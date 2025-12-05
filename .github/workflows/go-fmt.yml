@@ -26,6 +26,12 @@ jobs:
       - name: JS syntax check
         run: node --check app.js
 
+      - name: npm install for lint
+        run: npm install --ignore-scripts
+
+      - name: Frontend lint (eslint --max-warnings=0)
+        run: npx eslint app.js
+
       - name: Go test
         run: go test ./...
 

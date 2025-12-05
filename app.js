@@ -159,6 +159,26 @@ window.initiateAnalysis = function () {
             return;
         }
     }
+    const sys = Number(document.getElementById('p-bp-sys').value) || 0;
+    const dia = Number(document.getElementById('p-bp-dia').value) || 0;
+    const h = Number(document.getElementById('p-height').value) || 0;
+    const w = Number(document.getElementById('p-weight').value) || 0;
+    if (sys && sys < 50 || dia && dia < 30) {
+        alert("ERROR: INVALID_BLOOD_PRESSURE_VALUES");
+        return;
+    }
+    if ((document.querySelector('input[type=\"checkbox\"][value=\"Hypertension\"]:checked')) && (!sys || !dia)) {
+        alert("ERROR: MISSING_BLOOD_PRESSURE_FOR_HTN");
+        return;
+    }
+    if (h > 0 && (h < 90 || h > 250)) {
+        alert("ERROR: HEIGHT_OUT_OF_RANGE");
+        return;
+    }
+    if (w > 0 && (w < 25 || w > 350)) {
+        alert("ERROR: WEIGHT_OUT_OF_RANGE");
+        return;
+    }
     analyze();
 };
 
@@ -172,22 +192,36 @@ window.reset = function () {
 };
 
 window.finalize = function () {
+    finalizeWithSummary(reviewedPlan);
+};
+
+function finalizeWithSummary(planData) {
     const logContainer = document.getElementById('audit-log-container');
     const reviewer = (document.getElementById('reviewer-name')?.value || "UNKNOWN_REVIEWER").toUpperCase();
-    logContainer.innerHTML += generateAuditLog(`ANALYSIS_RUN_${activeModel.toUpperCase()}`);
-    logContainer.innerHTML += generateAuditLog(`DOCTOR_REVIEW_${reviewer}`);
-    logContainer.innerHTML += generateAuditLog("RX_SENT_TO_PHARMACY");
+    logContainer.innerHTML += generateAuditLog(`ANALYSIS_RUN_${activeModel.toUpperCase()}`, "");
+    logContainer.innerHTML += generateAuditLog(`DOCTOR_REVIEW_${reviewer}`, "");
+    if (planData) {
+        logContainer.innerHTML += generateAuditLog(`FINAL_RISK_${planData.riskLevel || 'UNK'}`, `Risk: ${planData.riskLevel || 'UNK'} Score: ${planData.riskScore ?? '--'}`);
+        logContainer.innerHTML += generateAuditLog(`FINAL_PLAN_${(planData.plan?.medication || 'NONE').toUpperCase()}`, `Med: ${planData.plan?.medication || 'None'} | ${planData.plan?.dosage || ''} | ${planData.plan?.duration || ''}`);
+    }
+    logContainer.innerHTML += generateAuditLog("RX_SENT_TO_PHARMACY", "");
 
     document.getElementById('step-results').style.display = 'none';
     document.getElementById('step-review').style.display = 'none';
     document.getElementById('step-success').style.display = 'block';
-};
+}
 
 // CORE LOGIC
 async function analyze() {
     const name = document.getElementById('p-name').value;
     if (!name) {
         alert("ERROR: NAME_FIELD_MISSING");
+        return;
+    }
+    const sys = Number(document.getElementById('p-bp-sys').value) || 0;
+    const dia = Number(document.getElementById('p-bp-dia').value) || 0;
+    if ((sys && sys < 50) || (dia && dia < 30)) {
+        alert("ERROR: INVALID_BLOOD_PRESSURE_VALUES");
         return;
     }
 
@@ -212,13 +246,14 @@ async function analyze() {
     await addLog("INITIALIZING DIAGNOSTIC ENGINE...");
     await addLog(`ACTIVE MODEL: ${activeModel.toUpperCase()}`);
     await addLog("PARSING CLINICAL DATA...");
+    recalcBMI();
 
     currentPatientData = {
         name: document.getElementById('p-name').value,
         weight: Number(document.getElementById('p-weight').value) || 0,
         height: Number(document.getElementById('p-height').value) || 0,
         age: Number(document.getElementById('p-age').value) || 0,
-        bmi: Number(document.getElementById('p-bmi').value) || 0,
+        bmi: Number(document.getElementById('p-bmi').value) || computeBMI(Number(document.getElementById('p-weight').value), Number(document.getElementById('p-height').value)) || 0,
         bpSystolic: Number(document.getElementById('p-bp-sys').value) || 0,
         bpDiastolic: Number(document.getElementById('p-bp-dia').value) || 0,
         smoking: document.getElementById('p-smoking').value,
@@ -387,6 +422,22 @@ function hasClassTokenByName(tokens, className) {
     return hasClassToken(tokens, list);
 }
 
+function parseMedDetails(medsText, detailText) {
+    const src = (detailText && detailText.trim().length ? detailText : medsText) || '';
+    return src
+        .split(/\n|;/)
+        .map(t => t.trim())
+        .filter(Boolean)
+        .map(t => {
+            const parts = t.split('|').map(p => p.trim()).filter(Boolean);
+            if (parts.length === 3) {
+                const [drug, dose, freq] = parts;
+                return `${drug} — ${dose} — ${freq}`;
+            }
+            return t.replace(/,+\s*$/, '');
+        });
+}
+
 function runSafetyEngine(data) {
     const meds = normalizeList(data.medications);
     const allergies = normalizeList(data.allergies);
@@ -398,6 +449,7 @@ function runSafetyEngine(data) {
     const smoking = (data.smoking || "").toLowerCase();
     const alcohol = (data.alcohol || "").toLowerCase();
     const exercise = (data.exercise || "").toLowerCase();
+    let riskBumps = 0;
 
     const hasPDE5i = hasClassToken(meds, DRUG_CLASSES.pde5i);
     const hasNitrates = hasClassToken(meds, DRUG_CLASSES.nitrates);
@@ -450,8 +502,10 @@ function runSafetyEngine(data) {
     }
     if (bpSys >= 170 || bpDia >= 110) {
         contraindications.push({ conditionOrAllergy: "Severely elevated BP", severity: "HIGH", note: "Uncontrolled hypertension; PDE5 inhibitors contraindicated." });
+        riskBumps += 10;
     } else if (bpSys >= 150 || bpDia >= 95) {
         contraindications.push({ conditionOrAllergy: "Elevated BP", severity: "MEDIUM", note: "Elevated blood pressure; use lowest dose and monitor." });
+        riskBumps += 5;
     }
     if (allergyToPde5i) {
         contraindications.push({ conditionOrAllergy: "PDE5 inhibitor allergy", severity: "HIGH", note: "Do not prescribe PDE5 inhibitors." });
@@ -480,14 +534,18 @@ function runSafetyEngine(data) {
     }
     if (bmi >= 35) {
         dosingConcerns.push({ factor: "Obesity (BMI ≥35)", severity: "MEDIUM", recommendation: "Start lowest dose; monitor cardiovascular tolerance." });
+        riskBumps += 5;
     } else if (bmi >= 30) {
         dosingConcerns.push({ factor: "Overweight (BMI ≥30)", severity: "LOW", recommendation: "Start low; encourage weight management and monitoring." });
+        riskBumps += 2;
     }
     if (smoking === "current") {
         dosingConcerns.push({ factor: "Smoking", severity: "LOW", recommendation: "Counsel cessation; monitor CV risk with therapy." });
+        riskBumps += 2;
     }
     if (alcohol === "heavy") {
         dosingConcerns.push({ factor: "Heavy alcohol use", severity: "MEDIUM", recommendation: "Avoid concurrent dosing; monitor BP and sedation risk." });
+        riskBumps += 3;
     }
     if (exercise === "none") {
         dosingConcerns.push({ factor: "Sedentary", severity: "LOW", recommendation: "Encourage activity; monitor cardiometabolic risk." });
@@ -502,7 +560,7 @@ function runSafetyEngine(data) {
 
     const score = Math.min(
         100,
-        allFindings.reduce((acc, f) => acc + (SEVERITY_WEIGHT[f.severity] || 0), 5)
+        allFindings.reduce((acc, f) => acc + (SEVERITY_WEIGHT[f.severity] || 0), 5 + riskBumps)
     );
 
     const riskLevel = maxSeverity === "HIGH"
@@ -641,6 +699,9 @@ function renderResults(data) {
     const rationaleOutput = document.getElementById('rationale-output');
     const altList = document.getElementById('alternatives-list');
     const confDisplay = document.getElementById('confidence-score');
+    const vitalsSummary = document.getElementById('vitals-summary');
+    const medsList = document.getElementById('meds-list');
+    const confNote = document.getElementById('confidence-note');
     reviewedPlan = data;
 
     const colors = {
@@ -660,6 +721,19 @@ function renderResults(data) {
                 </div>
             `;
 
+    if (vitalsSummary && currentPatientData) {
+        const bpText = (currentPatientData.bpSystolic || currentPatientData.bpDiastolic)
+            ? `BP: ${currentPatientData.bpSystolic || '--'}/${currentPatientData.bpDiastolic || '--'}`
+            : 'BP: --/--';
+        const bmiText = currentPatientData.bmi ? `BMI: ${currentPatientData.bmi}` : 'BMI: --';
+        const lifestyle = [
+            currentPatientData.smoking ? `Smoking: ${currentPatientData.smoking}` : null,
+            currentPatientData.alcohol ? `Alcohol: ${currentPatientData.alcohol}` : null,
+            currentPatientData.exercise ? `Exercise: ${currentPatientData.exercise}` : null,
+        ].filter(Boolean).join(' • ');
+        vitalsSummary.innerHTML = `${bpText} • ${bmiText}${lifestyle ? ' • ' + lifestyle : ''}`;
+    }
+
     const planConf = data.recommendationConfidence?.plan ?? data.confidenceScore ?? 0;
     const confPercent = Math.round(planConf * 100);
     confDisplay.textContent = `CONF: ${confPercent}%`;
@@ -667,10 +741,10 @@ function renderResults(data) {
     confDisplay.style.color = 'var(--ink-primary)';
 
     if (data.issues.length > 0 && data.issues[0] !== "None") {
-        issueList.innerHTML = data.issues.map(i => `
+        issueList.innerHTML = prioritizeIssues(data.issues).map(i => `
                     <li class="issue-item">
-                        <div class="issue-icon" style="background:var(--status-warning); color:white;">!</div>
-                        <span>${i}</span>
+                        <div class="issue-icon" style="background:${i.color}; color:white;">!</div>
+                        <span>${i.badge}${i.text}</span>
                     </li>`).join('');
     } else {
         issueList.innerHTML = `
@@ -687,14 +761,17 @@ function renderResults(data) {
             return;
         }
         target.innerHTML = items.map(item => {
+            const sev = item.severity || 'LOW';
+            const sevColor = sev === 'HIGH' ? 'var(--status-error)' : sev === 'MEDIUM' ? 'var(--status-warning)' : 'var(--status-success)';
+            const badge = `<span style="display:inline-block; padding:2px 6px; border-radius:6px; background:${sevColor}; color:white; font-size:0.7rem; margin-right:6px;">${sev}</span>`;
             if (item.pair) {
-                return `<li class="issue-item"><div class="issue-icon" style="background:var(--status-warning); color:white;">!</div><span>[${item.severity}] ${item.pair} — ${item.note}</span></li>`;
+                return `<li class="issue-item"><div class="issue-icon" style="background:${sevColor}; color:white;">!</div><span>${badge}${item.pair} — ${item.note}</span></li>`;
             }
             if (item.conditionOrAllergy) {
-                return `<li class="issue-item"><div class="issue-icon" style="background:var(--status-warning); color:white;">!</div><span>[${item.severity}] ${item.conditionOrAllergy} — ${item.note}</span></li>`;
+                return `<li class="issue-item"><div class="issue-icon" style="background:${sevColor}; color:white;">!</div><span>${badge}${item.conditionOrAllergy} — ${item.note}</span></li>`;
             }
             if (item.factor) {
-                return `<li class="issue-item"><div class="issue-icon" style="background:var(--status-warning); color:white;">!</div><span>[${item.severity}] ${item.factor} — ${item.recommendation}</span></li>`;
+                return `<li class="issue-item"><div class="issue-icon" style="background:${sevColor}; color:white;">!</div><span>${badge}${item.factor} — ${item.recommendation}</span></li>`;
             }
             return `<li class="issue-item"><div class="issue-icon" style="background:var(--status-warning); color:white;">!</div><span>${JSON.stringify(item)}</span></li>`;
         }).join('');
@@ -721,6 +798,39 @@ function renderResults(data) {
     } else {
         altList.innerHTML = `<li>None available.</li>`;
     }
+
+    if (medsList) {
+        const parsed = parseMedDetails(currentPatientData?.medications, currentPatientData?.medicationDetails);
+        medsList.innerHTML = parsed.length
+            ? parsed.map(m => `<li style="margin-bottom:4px;">${m}</li>`).join('')
+            : `<li>None provided.</li>`;
+    }
+
+    if (confNote) {
+        const hardBlocker = (data.contraindications || []).some(c => c.severity === "HIGH");
+        const isPDE5 = isPDE5Drug(data.plan.medication);
+        if (data.confidenceScore <= 0.45 && (hardBlocker || isPDE5)) {
+            confNote.style.display = 'block';
+            confNote.textContent = 'Confidence capped due to high-risk blockers (e.g., nitrates/severe BP/PDE5).';
+        } else {
+            confNote.style.display = 'none';
+            confNote.textContent = '';
+        }
+    }
+}
+
+function prioritizeIssues(rawIssues) {
+    const sevOrder = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+    return rawIssues
+        .map(txt => {
+            let sev = 'LOW';
+            if (/HIGH/i.test(txt)) sev = 'HIGH';
+            else if (/MEDIUM/i.test(txt)) sev = 'MEDIUM';
+            const color = sev === 'HIGH' ? 'var(--status-error)' : sev === 'MEDIUM' ? 'var(--status-warning)' : 'var(--status-success)';
+            const badge = `<span style="display:inline-block; padding:2px 6px; border-radius:6px; background:${color}; color:white; font-size:0.7rem; margin-right:6px;">${sev}</span>`;
+            return { text: txt.replace(/^\[.*?\]\s*/,'').trim(), sev, color, badge };
+        })
+        .sort((a, b) => (sevOrder[a.sev] ?? 3) - (sevOrder[b.sev] ?? 3));
 }
 
 // Doctor review workflow
@@ -765,7 +875,7 @@ function finalizeReview() {
     reviewedPlan.reviewer = reviewer;
 
     renderResults(reviewedPlan);
-    finalize();
+    finalizeWithSummary(reviewedPlan);
 }
 
 function isPDE5Drug(name) {
@@ -774,13 +884,15 @@ function isPDE5Drug(name) {
     return DRUG_CLASSES.pde5i.some(d => n.includes(d));
 }
 
-function generateAuditLog(action) {
+function generateAuditLog(action, summary) {
     const timestamp = new Date().toISOString();
     const hash = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    const extra = summary ? `<span style="font-family: var(--font-tech); color: var(--ink-secondary);">${summary}</span>` : '';
     return `
                 <div class="audit-entry">
                     <span>${timestamp}</span>
                     <span>${action.toUpperCase()}</span>
+                    ${extra}
                     <span style="font-family:monospace;">${hash}</span>
                 </div>
             `;
@@ -803,9 +915,18 @@ document.addEventListener('DOMContentLoaded', () => {
 function recalcBMI() {
     const w = Number(document.getElementById('p-weight').value) || 0;
     const h = Number(document.getElementById('p-height').value) || 0;
-    if (w > 0 && h > 0) {
-        const bmi = w / Math.pow(h / 100, 2);
-        document.getElementById('p-bmi').value = bmi.toFixed(1);
+    const bmiVal = computeBMI(w, h);
+    if (bmiVal) {
+        document.getElementById('p-bmi').value = bmiVal.toFixed(1);
+    } else {
+        document.getElementById('p-bmi').value = '';
     }
+}
+
+function computeBMI(weight, heightCm) {
+    if (!weight || !heightCm) return null;
+    const meters = heightCm / 100;
+    if (meters <= 0) return null;
+    return weight / Math.pow(meters, 2);
 }
 
