@@ -1,8 +1,8 @@
-# 🏥 GoCare
+# 🏥 GoCare — Built End-to-End in One Day
 
-**AI-powered clinical risk assessment in seconds.**
+**AI clinical risk triage that runs anywhere.**
 
-> Enter patient symptoms → Get instant risk analysis from Gemini, OpenAI, or mock engine → Make informed decisions faster.
+> Intake symptoms → route to Gemini/OpenAI/mock → return an explainable risk readout in seconds.
 
 [![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen)](https://gocare-l1f8.onrender.com/)
 [![Go](https://img.shields.io/badge/Backend-Go%2FGin-00ADD8)](https://go.dev/)
@@ -18,30 +18,40 @@
 
 ---
 
-## 💡 What It Does
+## ⚡ What We Shipped Under Hackathon Pressure
 
-1. **Patient inputs symptoms** — name, weight, height, conditions, medications, chief complaint
-2. **AI analyzes risk** — powered by Gemini, OpenAI, or deterministic mock
-3. **Instant assessment** — risk level, recommendations, and next steps
-
-No login required. Works immediately.
-
----
-
-## 🚀 Why GoCare Stands Out
-
-| Feature | Why It Matters |
-|---------|----------------|
-| **🔌 Plug-and-play LLMs** | Switch between Gemini, OpenAI, or mock with one env var. Hot-swappable, no code changes. |
-| **🛡️ Zero secrets in browser** | API keys stay server-side. Backend proxies all LLM calls securely. |
-| **♻️ Automatic fallback** | If LLM fails, gracefully degrades to mock engine—demos never break. |
-| **⚡ One-command deploy** | `docker-compose up --build` and you're live. Render blueprint included. |
-| **🩺 Production-ready endpoints** | Health (`/healthz`), readiness (`/readyz`), config discovery (`/api/config`). |
-| **📦 Monorepo simplicity** | Frontend + backend in one repo. Clone, run, done. |
+- Full Go/Gin backend (~1300 LOC) and vanilla JS frontend (~1100 LOC) assembled in a day
+- Swap-in LLM engines (Gemini, OpenAI, mock) without touching the UI
+- Safe-by-default: keys stay server-side, mock engine on standby to keep demos moving
+- Health/readiness/config endpoints for quick checks—solid for demos, not claiming hospital-grade prod
+- One-command local and Render deploy so judges can see it live immediately
 
 ---
 
-## 🤖 LLM Integration (The Cool Part)
+## 💡 How It Works
+
+1. **Collect symptoms** — name, vitals, conditions, medications, chief complaint.
+2. **Route to an engine** — Gemini, OpenAI, or deterministic mock (controlled by `DEFAULT_MODEL`).
+3. **Return a risk readout** — risk tier, recommendations, and next steps.
+
+No login. Opens in the browser and responds fast enough for live judging.
+
+---
+
+## 🚀 Why This Approach
+
+| Decision | Reason (with minutes to spare) |
+|----------|--------------------------------|
+| **🔌 Hot-swappable LLMs** | One env var flips engines; lets us demo even if a provider rate-limits. |
+| **🛡️ Zero secrets in browser** | Backend proxy keeps API keys server-side. |
+| **♻️ Automatic fallback** | Any LLM hiccup drops to mock so the flow never stalls. |
+| **⚡ One-command deploy** | `docker-compose up --build` locally or Render blueprint for the cloud. |
+| **🩺 Demo-ready probes** | `/healthz`, `/readyz`, `/api/config` to prove the stack is alive. |
+| **📦 Single repo** | Backend + frontend together to avoid integration overhead. |
+
+---
+
+## 🤖 LLM Integration
 
 GoCare supports **three diagnostic engines**:
 
@@ -51,7 +61,7 @@ GoCare supports **three diagnostic engines**:
 | **Gemini** | `/api/diagnostics/gemini` | `GEMINI_API_KEY` |
 | **OpenAI** | `/api/diagnostics/openai` | `OPENAI_API_KEY` |
 
-### How it works:
+### Flow
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   Browser   │────▶│  Go Backend │────▶│  LLM API    │
@@ -59,9 +69,9 @@ GoCare supports **three diagnostic engines**:
 └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
-- Set `DEFAULT_MODEL=gemini|openai|mock` to control the default
+- Set `DEFAULT_MODEL=gemini|openai|mock`
 - Frontend auto-discovers available models via `/api/config`
-- If an LLM call fails → falls back to mock (demos keep running)
+- If an LLM call fails, we fall back to mock to keep the flow live
 
 ---
 
@@ -109,9 +119,9 @@ curl -X POST http://localhost:8080/api/diagnostics/mock \
 ## 🏗️ Architecture
 
 ```
-├── cmd/server/main.go   # Gin backend (1300+ lines of production Go)
+├── cmd/server/main.go   # Gin backend (~1300 LOC)
 ├── index.html           # Clinical UI
-├── app.js               # Frontend logic (1100+ lines)
+├── app.js               # Frontend logic (~1100 LOC)
 ├── config.js            # Client-side config
 ├── docker-compose.yml   # One-command local stack
 ├── render.yaml          # Render deploy blueprint
@@ -119,6 +129,17 @@ curl -X POST http://localhost:8080/api/diagnostics/mock \
 ```
 
 **Stack:** Go/Gin • Vanilla JS • PostgreSQL (optional) • Docker • Render
+
+---
+
+## 🚧 What We Deliberately Scoped
+
+- No auth or PHI storage; this is a demo-safe flow
+- Database optional; mocks keep the demo self-contained
+- LLM prompts are basic but explainable; easy to iterate post-judging
+- UI is minimal for speed; mobile-friendly enough for live testing
+
+These are conscious trade-offs to land a full end-to-end demo quickly.
 
 ---
 
@@ -155,7 +176,7 @@ See [`API.md`](./API.md) for complete endpoint documentation, request/response s
 
 ## 📄 License
 
-Built for hackathon. MIT License.
+Built for a hackathon. MIT License.
 
 ---
 
