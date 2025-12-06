@@ -435,6 +435,18 @@ async function analyze() {
 }
 
 // API FUNCTIONS
+async function parseJsonStrict(response, label) {
+    const raw = await response.text();
+    if (!raw?.trim()) {
+        throw new Error(`${label} returned empty body`);
+    }
+    try {
+        return JSON.parse(raw);
+    } catch (err) {
+        throw new Error(`${label} returned invalid JSON: ${err.message}`);
+    }
+}
+
 async function callBackendMock(patientData) {
     const response = await fetch(`${API_BASE}/api/diagnostics/mock`, {
         method: 'POST',
@@ -456,7 +468,7 @@ async function callBackendMock(patientData) {
         }
         throw new Error(`Backend error (${response.status}): ${text}`);
     }
-    return await response.json();
+    return await parseJsonStrict(response, 'Mock API');
 }
 
 async function callGemini(patientData) {
@@ -469,7 +481,7 @@ async function callGemini(patientData) {
         const text = await response.text();
         throw new Error(`Gemini proxy failed (${response.status}): ${text}`);
     }
-    return await response.json();
+    return await parseJsonStrict(response, 'Gemini proxy');
 }
 
 async function callOpenAI(patientData) {
@@ -482,7 +494,7 @@ async function callOpenAI(patientData) {
         const text = await response.text();
         throw new Error(`OpenAI proxy failed (${response.status}): ${text}`);
     }
-    return await response.json();
+    return await parseJsonStrict(response, 'OpenAI proxy');
 }
 
 // Local safety rules engine for deterministic DDI/contra/dosing checks
