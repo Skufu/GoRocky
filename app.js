@@ -319,18 +319,92 @@ window.finalize = function () {
 
 function finalizeWithSummary(planData) {
     const logContainer = document.getElementById('audit-log-container');
-    const reviewer = (document.getElementById('reviewer-name')?.value || "UNKNOWN_REVIEWER").toUpperCase();
-    logContainer.innerHTML += generateAuditLog(`ANALYSIS_RUN_${activeModel.toUpperCase()}`, "");
-    logContainer.innerHTML += generateAuditLog(`DOCTOR_REVIEW_${reviewer}`, "");
-    if (planData) {
-        logContainer.innerHTML += generateAuditLog(`FINAL_RISK_${planData.riskLevel || 'UNK'}`, `Risk: ${planData.riskLevel || 'UNK'} Score: ${planData.riskScore ?? '--'}`);
-        logContainer.innerHTML += generateAuditLog(`FINAL_PLAN_${(planData.plan?.medication || 'NONE').toUpperCase()}`, `Med: ${planData.plan?.medication || 'None'} | ${planData.plan?.dosage || ''} | ${planData.plan?.duration || ''}`);
-    }
-    logContainer.innerHTML += generateAuditLog("RX_SENT_TO_PHARMACY", "");
+    const entries = buildAuditLogEntries(planData);
+    logContainer.innerHTML = entries.map(entry => generateAuditLog(entry.action, entry.summary)).join('');
 
     document.getElementById('step-results').style.display = 'none';
     document.getElementById('step-review').style.display = 'none';
     document.getElementById('step-success').style.display = 'block';
+}
+
+function buildAuditLogEntries(planData) {
+    const reviewer = (document.getElementById('reviewer-name')?.value || "UNKNOWN_REVIEWER").toUpperCase();
+    const snapshot = planData || reviewedPlan || {};
+    const patient = currentPatientData || {};
+    const riskLevel = snapshot.riskLevel || 'UNK';
+    const riskScore = snapshot.riskScore ?? '--';
+    const planMed = snapshot.plan?.medication || 'NONE';
+    const planDose = snapshot.plan?.dosage || 'N/A';
+    const planDur = snapshot.plan?.duration || 'N/A';
+    const planRat = snapshot.plan?.rationale || 'No rationale provided.';
+    const interactions = Array.isArray(snapshot.interactions) ? snapshot.interactions : [];
+    const contraindications = Array.isArray(snapshot.contraindications) ? snapshot.contraindications : [];
+    const dosingConcerns = Array.isArray(snapshot.dosingConcerns) ? snapshot.dosingConcerns : [];
+    const alternatives = Array.isArray(snapshot.alternatives) ? snapshot.alternatives : [];
+    const conf = snapshot.recommendationConfidence?.plan ?? snapshot.confidenceScore ?? '--';
+    const modelLabel = activeModel ? activeModel.toUpperCase() : 'UNKNOWN_MODEL';
+
+    const formatList = (items, fields) => items.slice(0, 3).map(item => {
+        for (const field of fields) {
+            if (item[field]) return item[field];
+        }
+        return typeof item === 'string' ? item : '';
+    }).filter(Boolean).join(' | ');
+
+    const entries = [
+        {
+            action: `SESSION_${modelLabel}`,
+            summary: `Patient: ${patient.name || 'Unknown'} | Complaint: ${patient.complaint || 'N/A'} | BMI: ${patient.bmi || '--'} | BP: ${patient.bpSystolic || '--'}/${patient.bpDiastolic || '--'}`
+        },
+        {
+            action: `ANALYSIS_COMPLETE_${modelLabel}`,
+            summary: `Risk ${riskLevel} (${riskScore}/100) | Confidence: ${conf === '--' ? '--' : Math.round(conf * 100) + '%'}`
+        },
+        {
+            action: `PLAN_${planMed.toUpperCase()}`,
+            summary: `Dose: ${planDose} | Duration: ${planDur} | Rationale: ${planRat}`
+        }
+    ];
+
+    if (interactions.length) {
+        entries.push({
+            action: `INTERACTIONS_${interactions.length}`,
+            summary: formatList(interactions, ['pair', 'note', 'factor']) || 'See interactions list for details.'
+        });
+    }
+
+    if (contraindications.length) {
+        entries.push({
+            action: `CONTRA_${contraindications.length}`,
+            summary: formatList(contraindications, ['conditionOrAllergy', 'note', 'factor']) || 'Contraindications recorded.'
+        });
+    }
+
+    if (dosingConcerns.length) {
+        entries.push({
+            action: `DOSING_${dosingConcerns.length}`,
+            summary: formatList(dosingConcerns, ['factor', 'recommendation', 'note']) || 'Dosing considerations noted.'
+        });
+    }
+
+    if (alternatives.length) {
+        entries.push({
+            action: `ALTERNATIVES_${alternatives.length}`,
+            summary: formatList(alternatives, ['option', 'recommendation', 'note']) || 'Alternatives available.'
+        });
+    }
+
+    entries.push({
+        action: `DOCTOR_REVIEW_${reviewer}`,
+        summary: `Reviewed by ${reviewer} | Plan confidence: ${conf === '--' ? '--' : Math.round(conf * 100) + '%'}`
+    });
+
+    entries.push({
+        action: "RX_SENT_TO_PHARMACY",
+        summary: `Plan: ${planMed} | Dose: ${planDose} | Duration: ${planDur}`
+    });
+
+    return entries;
 }
 
 // CORE LOGIC
