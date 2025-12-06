@@ -84,6 +84,83 @@ window.updateModelDisplay = function () {
     if (display) display.textContent = selector.options[selector.selectedIndex].text;
 };
 
+// Structured medication rows
+function medRowsContainer() {
+    return document.getElementById('med-rows');
+}
+
+function syncMedDetailsHidden() {
+    const hidden = document.getElementById('p-meds-detail');
+    if (hidden) hidden.value = collectMedRowsString();
+}
+
+function collectMedRowsString() {
+    const container = medRowsContainer();
+    if (!container) return '';
+    const rows = Array.from(container.querySelectorAll('.med-row')).map(row => {
+        const [drug, dose, freq] = Array.from(row.querySelectorAll('input')).map(i => i.value.trim());
+        return { drug, dose, freq };
+    }).filter(r => r.drug || r.dose || r.freq);
+
+    return rows.map(r => [r.drug || 'Unknown med', r.dose || 'Unknown dose', r.freq || 'Unknown freq'].join(' | ')).join('\n');
+}
+
+function addMedRow(data = {}) {
+    const container = medRowsContainer();
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'med-row';
+    row.style.display = 'grid';
+    row.style.gridTemplateColumns = '1fr 1fr 1fr auto';
+    row.style.gap = '8px';
+    row.style.marginTop = container.children.length ? '8px' : '0';
+
+    const makeInput = (placeholder, value) => {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'input-field';
+        input.placeholder = placeholder;
+        input.value = value || '';
+        input.addEventListener('input', syncMedDetailsHidden);
+        return input;
+    };
+
+    const drugInput = makeInput('Drug', data.drug);
+    const doseInput = makeInput('Dose', data.dose);
+    const freqInput = makeInput('Frequency', data.freq);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn-ghost';
+    removeBtn.style.border = 'var(--border-thin)';
+    removeBtn.textContent = '×';
+    removeBtn.title = 'Remove row';
+    removeBtn.onclick = () => {
+        container.removeChild(row);
+        if (!container.children.length) addMedRow();
+        syncMedDetailsHidden();
+    };
+
+    row.appendChild(drugInput);
+    row.appendChild(doseInput);
+    row.appendChild(freqInput);
+    row.appendChild(removeBtn);
+
+    container.appendChild(row);
+    syncMedDetailsHidden();
+}
+
+function setMedRows(rows) {
+    const container = medRowsContainer();
+    if (!container) return;
+    container.innerHTML = '';
+    const payload = rows && rows.length ? rows : [{}];
+    payload.forEach(r => addMedRow(r));
+    syncMedDetailsHidden();
+}
+
+window.addMedRow = addMedRow;
+
 window.prefill = function (type) {
     const nameInput = document.getElementById('p-name');
     const medsInput = document.getElementById('p-meds');
@@ -95,7 +172,6 @@ window.prefill = function (type) {
     const smoking = document.getElementById('p-smoking');
     const alcohol = document.getElementById('p-alcohol');
     const exercise = document.getElementById('p-exercise');
-    const medsDetail = document.getElementById('p-meds-detail');
     const bmiField = document.getElementById('p-bmi');
 
     checkboxes.forEach(cb => cb.checked = false);
@@ -105,13 +181,14 @@ window.prefill = function (type) {
     smoking.value = '';
     alcohol.value = '';
     exercise.value = '';
-    medsDetail.value = '';
     bmiField.value = '';
 
     if (type === 'standard') {
         nameInput.value = "Alex Mercer";
         medsInput.value = "Vitamin D";
-        medsDetail.value = "Vitamin D 2000 IU daily";
+        setMedRows([
+            { drug: "Vitamin D", dose: "2000 IU", freq: "Daily" }
+        ]);
         document.getElementById('p-weight').value = 78;
         document.getElementById('p-height').value = 178;
         ageInput.value = 42;
@@ -126,7 +203,11 @@ window.prefill = function (type) {
     } else {
         nameInput.value = "Robert Vance";
         medsInput.value = "Nitroglycerin, Atorvastatin, Tamsulosin";
-        medsDetail.value = "Nitroglycerin 0.4mg SL PRN; Atorvastatin 40mg QD; Tamsulosin 0.4mg QD";
+        setMedRows([
+            { drug: "Nitroglycerin", dose: "0.4mg SL", freq: "PRN" },
+            { drug: "Atorvastatin", dose: "40mg", freq: "QD" },
+            { drug: "Tamsulosin", dose: "0.4mg", freq: "QD" }
+        ]);
         document.getElementById('p-weight').value = 98;
         document.getElementById('p-height').value = 173;
         ageInput.value = 68;
@@ -261,7 +342,7 @@ async function analyze() {
         exercise: document.getElementById('p-exercise').value,
         conditions: Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value),
         medications: document.getElementById('p-meds').value,
-        medicationDetails: document.getElementById('p-meds-detail').value,
+        medicationDetails: collectMedRowsString(),
         allergies: document.getElementById('p-allergies').value,
         complaint: document.getElementById('p-complaint').value || "General Checkup"
     };
@@ -910,6 +991,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (dateEl) dateEl.textContent = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
 
     updateModelDisplay();
+    setMedRows([{}]);
 
     const weightEl = document.getElementById('p-weight');
     const heightEl = document.getElementById('p-height');

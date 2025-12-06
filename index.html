@@ -205,7 +205,12 @@
                     </div>
                     <div class="input-group">
                         <label class="input-label">MEDICATION DETAILS (DRUG | DOSE | FREQ)</label>
-                        <textarea id="p-meds-detail" class="input-field" rows="3" placeholder="Metoprolol | 50mg | BID&#10;Atorvastatin | 40mg | QD"></textarea>
+                        <div id="med-rows" class="med-rows" aria-label="Medication rows"></div>
+                        <input type="hidden" id="p-meds-detail">
+                        <div style="display:flex; gap:8px; margin-top:12px; flex-wrap: wrap;">
+                            <button class="btn btn-secondary" type="button" onclick="addMedRow()" aria-label="Add medication row">+ ADD MED</button>
+                            <div class="tech-tag" style="opacity:0.8;">Format: Drug | Dose | Frequency</div>
+                        </div>
                     </div>
 
                     <div class="input-group">
