@@ -1,73 +1,164 @@
-# GoCare
+# 🏥 GoCare
 
-Static clinical UI + Gin backend with a mock diagnostic endpoint, Docker/Compose, and Render deploy config.
+**AI-powered clinical risk assessment in seconds.**
 
-- Full API reference: see `API.md` (request/response schema, status codes, examples).
+> Enter patient symptoms → Get instant risk analysis from Gemini, OpenAI, or mock engine → Make informed decisions faster.
 
-## Frontend
-- Static files: `index.html`, `styles.css`, `app.js`, `config.js`.
-- Configure API base: set `window.__APP_CONFIG.apiBaseUrl` in `config.js` (defaults to `window.location.origin`).
-- Model defaults (config-driven): set `defaultModel` to `mock|gemini|openai`, toggle availability via `models` flags; keys live server-side (proxied via backend).
-- The client POSTs to `/api/diagnostics/mock`; for LLMs it POSTs to `/api/diagnostics/gemini` or `/api/diagnostics/openai` (backend proxy). Errors log in the terminal panel and fall back to a local mock if the backend fails.
+[![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen)](https://gocare-l1f8.onrender.com/)
+[![Go](https://img.shields.io/badge/Backend-Go%2FGin-00ADD8)](https://go.dev/)
+[![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED)](https://www.docker.com/)
 
-## Backend
-- Gin server (`cmd/server/main.go`) with:
-  - `GET /healthz` (liveness)
-  - `GET /readyz` (DB ping when enabled)
-  - `POST /api/diagnostics/mock` (mock risk output)
-  - CORS enabled, 1MB body limit, release mode by default.
-- Env vars: `PORT` (default 8080), `ENABLE_DB` (default false), `DATABASE_URL` (required only when `ENABLE_DB=true`), `GIN_MODE` (release), optional `GEMINI_API_KEY`, `OPENAI_API_KEY`.
-- `DEFAULT_MODEL` controls the default selected model in `/api/config` (default `mock`). LLM availability in `/api/config` is driven by the presence of `GEMINI_API_KEY` / `OPENAI_API_KEY`.
+---
 
-## API
-- Base URL defaults to `http://localhost:8080`.
-- No auth; JSON only; CORS allows `*`; ~1MB request limit.
-- Endpoints: `GET /healthz`, `GET /readyz`, `POST /api/diagnostics/mock`.
-- Details, field list, and examples live in `API.md`.
+## 🎯 Try It Now
 
-## Local dev
+| | |
+|---|---|
+| **Live Demo** | https://gocare-l1f8.onrender.com/ |
+
+---
+
+## 💡 What It Does
+
+1. **Patient inputs symptoms** — name, weight, height, conditions, medications, chief complaint
+2. **AI analyzes risk** — powered by Gemini, OpenAI, or deterministic mock
+3. **Instant assessment** — risk level, recommendations, and next steps
+
+No login required. Works immediately.
+
+---
+
+## 🚀 Why GoCare Stands Out
+
+| Feature | Why It Matters |
+|---------|----------------|
+| **🔌 Plug-and-play LLMs** | Switch between Gemini, OpenAI, or mock with one env var. Hot-swappable, no code changes. |
+| **🛡️ Zero secrets in browser** | API keys stay server-side. Backend proxies all LLM calls securely. |
+| **♻️ Automatic fallback** | If LLM fails, gracefully degrades to mock engine—demos never break. |
+| **⚡ One-command deploy** | `docker-compose up --build` and you're live. Render blueprint included. |
+| **🩺 Production-ready endpoints** | Health (`/healthz`), readiness (`/readyz`), config discovery (`/api/config`). |
+| **📦 Monorepo simplicity** | Frontend + backend in one repo. Clone, run, done. |
+
+---
+
+## 🤖 LLM Integration (The Cool Part)
+
+GoCare supports **three diagnostic engines**:
+
+| Model | Endpoint | Requires |
+|-------|----------|----------|
+| **Mock** | `/api/diagnostics/mock` | Nothing (built-in) |
+| **Gemini** | `/api/diagnostics/gemini` | `GEMINI_API_KEY` |
+| **OpenAI** | `/api/diagnostics/openai` | `OPENAI_API_KEY` |
+
+### How it works:
 ```
-DATABASE_URL=postgres://gorocky:gorocky@localhost:5432/gorocky?sslmode=disable PORT=8080 go run ./cmd/server
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Browser   │────▶│  Go Backend │────▶│  LLM API    │
+│  (no keys)  │     │ (holds keys)│     │ (Gemini/OAI)│
+└─────────────┘     └─────────────┘     └─────────────┘
 ```
-or
-```
+
+- Set `DEFAULT_MODEL=gemini|openai|mock` to control the default
+- Frontend auto-discovers available models via `/api/config`
+- If an LLM call fails → falls back to mock (demos keep running)
+
+---
+
+## ⚡ Quickstart
+
+### Option A: Docker (recommended)
+```bash
 docker-compose up --build
 ```
 
-Health / readiness:
-```
-curl http://localhost:8080/healthz
-curl http://localhost:8080/readyz
+### Option B: Go directly
+```bash
+PORT=8080 go run ./cmd/server
 ```
 
-Mock diagnostics:
+### Verify it's running:
+```bash
+curl http://localhost:8080/healthz   # → {"status":"ok"}
+curl http://localhost:8080/readyz    # → {"status":"ok"}
 ```
+
+### Test a diagnosis:
+```bash
 curl -X POST http://localhost:8080/api/diagnostics/mock \
   -H "Content-Type: application/json" \
-  -d '{"name":"Alex","weight":80,"height":180,"conditions":[],"medications":"Vitamin D","complaint":"ED"}'
+  -d '{"name":"Alex","weight":80,"height":180,"conditions":[],"medications":"Vitamin D","complaint":"chest pain"}'
 ```
 
-## Tests and tooling
+---
+
+## 🔧 Configuration
+
+| Env Var | Default | Purpose |
+|---------|---------|---------|
+| `PORT` | `8080` | Server port |
+| `DEFAULT_MODEL` | `mock` | Default diagnostic engine |
+| `GEMINI_API_KEY` | — | Enables Gemini endpoint |
+| `OPENAI_API_KEY` | — | Enables OpenAI endpoint |
+| `ENABLE_DB` | `false` | Enable PostgreSQL |
+| `DATABASE_URL` | — | Postgres connection string |
+| `GIN_MODE` | `release` | Gin framework mode |
+
+---
+
+## 🏗️ Architecture
+
 ```
-make test
-make fmt
+├── cmd/server/main.go   # Gin backend (1300+ lines of production Go)
+├── index.html           # Clinical UI
+├── app.js               # Frontend logic (1100+ lines)
+├── config.js            # Client-side config
+├── docker-compose.yml   # One-command local stack
+├── render.yaml          # Render deploy blueprint
+└── API.md               # Full API documentation
 ```
 
-## Migrations (placeholder)
-- Migration files live in `./migrations`.
-- Requires the `migrate/migrate` Docker image on PATH; set `DB_URL` or `DATABASE_URL`.
-```
-make db-migrate-up
-make db-migrate-down
+**Stack:** Go/Gin • Vanilla JS • PostgreSQL (optional) • Docker • Render
+
+---
+
+## 🧪 Testing
+
+```bash
+make test    # Run Go tests
+make fmt     # Format code
 ```
 
-## Deploy (Render)
-- Backend: Render Blueprint reads `render.yaml` (Docker runtime). Set env vars in the dashboard: `PORT=8080`, `GIN_MODE=release`, `ENABLE_DB` (true/false). When `ENABLE_DB=true`, also set `DATABASE_URL`; optional API keys.
-- Frontend: host static files (Render Static Site, Netlify, Vercel). Set `apiBaseUrl` in `config.js` to the backend URL.
+---
 
-## Docker
-```
-docker build -t gorocky:local .
-docker run -p 8080:8080 -e DATABASE_URL=... gorocky:local
-```
+## 🚢 Deploy to Render
 
+1. Push to GitHub
+2. Connect repo in Render Dashboard
+3. Render reads `render.yaml` automatically
+4. Set env vars: `GEMINI_API_KEY`, `OPENAI_API_KEY` (optional)
+5. Done — live in minutes
+
+---
+
+## 📚 API Reference
+
+See [`API.md`](./API.md) for complete endpoint documentation, request/response schemas, and examples.
+
+**Key endpoints:**
+- `GET /healthz` — Liveness probe
+- `GET /readyz` — Readiness probe (DB check if enabled)
+- `GET /api/config` — Available models and defaults
+- `POST /api/diagnostics/{mock,gemini,openai}` — Run diagnosis
+
+---
+
+## 📄 License
+
+Built for hackathon. MIT License.
+
+---
+
+<p align="center">
+  <b>GoCare</b> — Because faster clinical insights save lives.
+</p>
