@@ -1,5 +1,11 @@
 // CONFIG & STATE
-const API_BASE = (window.__APP_CONFIG?.apiBaseUrl || window.location.origin).replace(/\/$/, '');
+const APP_CONFIG = window.__APP_CONFIG || {};
+const API_BASE = (APP_CONFIG.apiBaseUrl || window.location.origin).replace(/\/$/, '');
+const MODEL_AVAILABILITY = {
+    mock: true,
+    gemini: APP_CONFIG.models?.gemini !== false,
+    openai: APP_CONFIG.models?.openai !== false
+};
 let apiKeys = {
     gemini: '',
     openai: ''
@@ -56,6 +62,33 @@ const RESPONSE_SCHEMA = {
     arrays: ["issues", "interactions", "contraindications", "dosingConcerns", "alternatives"]
 };
 
+function modelEnabled(model) {
+    return MODEL_AVAILABILITY[model] !== false;
+}
+
+function chooseDefaultModel() {
+    const preferred = (APP_CONFIG.defaultModel || '').toLowerCase();
+    if (preferred && modelEnabled(preferred)) return preferred;
+    if (modelEnabled('gemini')) return 'gemini';
+    if (modelEnabled('openai')) return 'openai';
+    return 'mock';
+}
+
+function applyConfigDefaults() {
+    if (APP_CONFIG.modelKeys) {
+        if (APP_CONFIG.modelKeys.gemini) apiKeys.gemini = APP_CONFIG.modelKeys.gemini;
+        if (APP_CONFIG.modelKeys.openai) apiKeys.openai = APP_CONFIG.modelKeys.openai;
+    }
+    const selector = document.getElementById('model-selector');
+    const nextModel = chooseDefaultModel();
+    activeModel = nextModel;
+    if (selector) {
+        const hasOption = Array.from(selector.options).some(o => o.value === nextModel);
+        if (hasOption) selector.value = nextModel;
+    }
+    updateModelDisplay();
+}
+
 // GLOBAL FUNCTIONS
 window.switchView = function (view) {
     document.querySelectorAll('.view-container').forEach(el => el.classList.remove('active'));
@@ -73,7 +106,12 @@ window.openSettings = function () {
 window.saveSettings = function () {
     apiKeys.gemini = document.getElementById('key-gemini').value;
     apiKeys.openai = document.getElementById('key-openai').value;
-    activeModel = document.getElementById('model-selector').value;
+    const nextModel = document.getElementById('model-selector').value;
+    if (!modelEnabled(nextModel)) {
+        alert("Selected model is disabled in configuration.");
+        return;
+    }
+    activeModel = nextModel;
     updateModelDisplay();
     document.getElementById('settings-modal').style.display = 'none';
 };
@@ -227,6 +265,10 @@ window.prefill = function (type) {
 };
 
 window.initiateAnalysis = function () {
+    if (!modelEnabled(activeModel)) {
+        alert("ERROR: MODEL_DISABLED");
+        return;
+    }
     if (activeModel !== 'mock') {
         if (activeModel === 'gemini' && !apiKeys.gemini) {
             alert("MISSING API KEY: Please configure Gemini Key in settings.");
@@ -1010,6 +1052,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updateModelDisplay();
     setMedRows([{}]);
+    applyConfigDefaults();
 
     const weightEl = document.getElementById('p-weight');
     const heightEl = document.getElementById('p-height');

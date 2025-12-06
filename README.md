@@ -7,6 +7,7 @@ Static clinical UI + Gin backend with a mock diagnostic endpoint, Docker/Compose
 ## Frontend
 - Static files: `index.html`, `styles.css`, `app.js`, `config.js`.
 - Configure API base: set `window.__APP_CONFIG.apiBaseUrl` in `config.js` (defaults to `window.location.origin`).
+- Model defaults (config-driven): set `defaultModel` to `mock|gemini|openai`, toggle availability via `models` flags, and optionally inject keys via `modelKeys.gemini`/`modelKeys.openai` (map from `GEMINI_API_KEY` / `OPENAI_API_KEY` at deploy).
 - The client POSTs to `/api/diagnostics/mock`; errors log in the terminal panel and fall back to a local mock if the backend fails.
 
 ## Backend
