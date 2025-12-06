@@ -244,8 +244,9 @@ func loadConfig() (*Config, error) {
 	return cfg, nil
 }
 
-func connectDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(url)
+func connectDB(ctx context.Context, rawURL string) (*pgxpool.Pool, error) {
+	cleanURL := sanitizeDatabaseURL(rawURL)
+	cfg, err := pgxpool.ParseConfig(cleanURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse db url: %w", err)
 	}
@@ -264,6 +265,26 @@ func connectDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	}
 
 	return pool, nil
+}
+
+// sanitizeDatabaseURL normalizes known params to avoid server-side rejections (e.g., "mode" vs "sslmode").
+func sanitizeDatabaseURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+
+	q := parsed.Query()
+	mode := q.Get("mode")
+	sslmode := q.Get("sslmode")
+	if sslmode == "" && mode != "" {
+		q.Set("sslmode", mode)
+	}
+	if mode != "" {
+		q.Del("mode")
+	}
+	parsed.RawQuery = q.Encode()
+	return parsed.String()
 }
 
 func setupRouter(db HealthChecker, dbPool *pgxpool.Pool, staticRoot string, cfg *Config) *gin.Engine {
