@@ -79,7 +79,7 @@ func TestLoadConfigUsesDefaults(t *testing.T) {
 
 func TestRouterHealthz(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := setupRouter(fakeDB{}, ".", &Config{})
+	router := setupRouter(fakeDB{}, nil, ".", &Config{})
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/healthz", nil)
@@ -95,7 +95,7 @@ func TestRouterHealthz(t *testing.T) {
 
 func TestConfigEndpoint_NoKeys(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := setupRouter(nil, ".", &Config{GeminiAPIKey: "", OpenAIAPIKey: ""})
+	router := setupRouter(nil, nil, ".", &Config{GeminiAPIKey: "", OpenAIAPIKey: ""})
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/config", nil)
@@ -157,7 +157,7 @@ func TestLimitBodySize(t *testing.T) {
 
 func TestDiagnosticsValidation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := setupRouter(nil, ".", &Config{})
+	router := setupRouter(nil, nil, ".", &Config{})
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/diagnostics/mock", strings.NewReader(`{

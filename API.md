@@ -13,6 +13,7 @@ Base URL defaults to `http://localhost:8080`. All endpoints accept and return JS
 - `POST /api/diagnostics/mock` — Runs the mock safety/diagnostic engine and returns a structured risk assessment.
 - `POST /api/diagnostics/gemini` — Proxies to Gemini using server-held `GEMINI_API_KEY`. Body is the patient payload (same as mock). Returns the model JSON directly.
 - `POST /api/diagnostics/openai` — Proxies to OpenAI using server-held `OPENAI_API_KEY`. Body is the patient payload (same as mock). Returns the model JSON directly.
+- `POST /api/interactions/check` — Cross-checks medications against a drug interaction source. Uses Postgres table `drug_interactions` when available (`ENABLE_DB=true`), falling back to RxNav. Returns resolved/unresolved meds, interactions, warnings, and source.
 
 ## Requests
 
@@ -40,6 +41,18 @@ Body fields:
 | `medicationDetails` | string | Optional supporting text. |
 | `allergies` | string | Free-text list; parsed for drug classes. |
 | `complaint` | string | Primary complaint (e.g., `"ED"`). |
+
+`POST /api/interactions/check`
+
+Headers:
+- `Content-Type: application/json`
+
+Body fields:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `medications` | string | Comma/semicolon/newline separated drug names. |
+| `medicationDetails` | string | Optional extra med lines; also parsed. |
 
 ## Responses
 
@@ -73,6 +86,22 @@ Error shapes:
 - `422 {"error":"validation_failed","issues":[{"field":"bloodPressure","message":"Blood pressure is required when hypertension is selected."}]}` — validation errors (name required, plausible vitals, hypertension requires BP, etc.).
 - `503 {"status":"degraded","db":"unhealthy: <details>"}` — only from `readyz` when DB unhealthy.
 - `413` if body exceeds ~1MB.
+
+`POST /api/interactions/check` success `200 OK` (example):
+```
+{
+  "interactions": [
+    {"pair":"nitroglycerin + sildenafil","severity":"HIGH","note":"Risk of profound hypotension","source":"rxnav"}
+  ],
+  "resolved": ["nitroglycerin","sildenafil"],
+  "unresolved": [],
+  "warnings": [],
+  "source": "rxnav"
+}
+```
+Errors:
+- `400 {"error":"invalid payload"}` — JSON bind/shape error.
+- `200` with `warnings` set when DB table missing or RxNav lacked matches.
 
 ## Examples
 

@@ -409,6 +409,22 @@ async function analyze() {
         await addLog("VALIDATING JSON SCHEMA...");
         validateSchema(result);
 
+        try {
+            const interactionsResp = await fetchInteractionChecks(currentPatientData);
+            if (interactionsResp?.warnings?.length) {
+                await addLog(`RX CHECK WARNINGS: ${interactionsResp.warnings.join(' | ')}`);
+            }
+            if (interactionsResp?.interactions?.length) {
+                result.interactions = mergeInteractionLists(result.interactions || [], interactionsResp.interactions);
+                await addLog(`RX CHECK FOUND ${interactionsResp.interactions.length} INTERACTION(S)`);
+            } else {
+                await addLog("RX CHECK: NO ADDITIONAL INTERACTIONS");
+            }
+        } catch (e) {
+            console.warn("Interaction check failed", e);
+            await addLog(`RX CHECK FAILED: ${e.message || e}`);
+        }
+
         await addLog("ANALYSIS COMPLETE. RENDERING...");
         await new Promise(r => setTimeout(r, 500));
 
@@ -496,6 +512,49 @@ async function callOpenAI(patientData) {
         throw new Error(`OpenAI proxy failed (${response.status}): ${text}`);
     }
     return await parseJsonStrict(response, 'OpenAI proxy');
+}
+
+async function fetchInteractionChecks(patientData) {
+    const meds = (patientData?.medications || '').trim();
+    if (!meds) {
+        return { interactions: [], warnings: [], resolved: [], unresolved: [], source: 'none' };
+    }
+    const payload = {
+        medications: meds,
+        medicationDetails: patientData?.medicationDetails || ''
+    };
+    const response = await fetch(`${API_BASE}/api/interactions/check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Interactions check failed (${response.status}): ${text}`);
+    }
+    return await parseJsonStrict(response, 'Interactions check');
+}
+
+function mergeInteractionLists(base = [], incoming = []) {
+    const dedup = new Map();
+    const pushAll = (list, sourceLabel) => {
+        list.forEach(item => {
+            if (!item?.pair) return;
+            const key = `${(item.pair || '').toLowerCase()}|${(item.note || '').toLowerCase()}`;
+            if (!dedup.has(key)) {
+                dedup.set(key, { ...item, source: item.source || sourceLabel });
+            } else {
+                const existing = dedup.get(key);
+                const sevRank = { HIGH: 2, MEDIUM: 1, LOW: 0 };
+                if ((sevRank[item.severity] || 0) > (sevRank[existing.severity] || 0)) {
+                    dedup.set(key, { ...item, source: item.source || sourceLabel });
+                }
+            }
+        });
+    };
+    pushAll(base, 'rules');
+    pushAll(incoming, 'rxnav');
+    return Array.from(dedup.values());
 }
 
 // Local safety rules engine for deterministic DDI/contra/dosing checks

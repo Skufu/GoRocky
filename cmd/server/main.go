@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -96,6 +98,14 @@ type Alternative struct {
 
 type RecommendationConfidence struct {
 	Plan float64 `json:"plan"`
+}
+
+type InteractionCheckResponse struct {
+	Interactions []Interaction `json:"interactions"`
+	Resolved     []string      `json:"resolved"`
+	Unresolved   []string      `json:"unresolved"`
+	Warnings     []string      `json:"warnings"`
+	Source       string        `json:"source"` // db|rxnav|none
 }
 
 type validationError struct {
@@ -185,16 +195,18 @@ func main() {
 
 	ctx := context.Background()
 	var db HealthChecker
+	var dbPool *pgxpool.Pool
 	if cfg.EnableDB {
-		db, err = connectDB(ctx, cfg.DatabaseURL)
+		dbPool, err = connectDB(ctx, cfg.DatabaseURL)
 		if err != nil {
 			log.Fatalf("database connection failed: %v", err)
 		}
-		defer db.(interface{ Close() }).Close()
+		db = dbPool
+		defer dbPool.Close()
 	}
 
 	staticRoot := detectStaticRoot()
-	router := setupRouter(db, staticRoot, cfg)
+	router := setupRouter(db, dbPool, staticRoot, cfg)
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
@@ -254,7 +266,7 @@ func connectDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func setupRouter(db HealthChecker, staticRoot string, cfg *Config) *gin.Engine {
+func setupRouter(db HealthChecker, dbPool *pgxpool.Pool, staticRoot string, cfg *Config) *gin.Engine {
 	router := gin.New()
 	router.Use(
 		gin.Logger(),
@@ -409,6 +421,66 @@ func setupRouter(db HealthChecker, staticRoot string, cfg *Config) *gin.Engine {
 		c.JSON(http.StatusOK, cfgResp)
 	})
 
+	router.POST("/api/interactions/check", func(c *gin.Context) {
+		var req struct {
+			Medications       string `json:"medications"`
+			MedicationDetails string `json:"medicationDetails"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+
+		meds := normalizeMedList(req.Medications, req.MedicationDetails)
+		if len(meds) == 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"interactions": []Interaction{},
+				"resolved":     []string{},
+				"unresolved":   []string{},
+				"warnings":     []string{},
+				"source":       "none",
+			})
+			return
+		}
+		if len(meds) > 25 {
+			meds = meds[:25]
+		}
+
+		resp := InteractionCheckResponse{
+			Resolved: meds,
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
+		defer cancel()
+
+		if dbPool != nil {
+			dbInteractions, warning, err := lookupInteractionsDB(ctx, dbPool, meds)
+			if len(warning) > 0 {
+				resp.Warnings = append(resp.Warnings, warning)
+			}
+			if err != nil {
+				resp.Warnings = append(resp.Warnings, fmt.Sprintf("db_lookup_failed: %v", err))
+			} else if len(dbInteractions) > 0 {
+				resp.Interactions = append(resp.Interactions, dbInteractions...)
+				resp.Source = "db"
+			}
+		}
+
+		if resp.Source == "" {
+			rxInteractions, resolved, unresolved, warnings := lookupInteractionsRxNav(ctx, meds)
+			resp.Interactions = append(resp.Interactions, rxInteractions...)
+			resp.Resolved = resolved
+			resp.Unresolved = unresolved
+			resp.Warnings = append(resp.Warnings, warnings...)
+			resp.Source = "rxnav"
+		}
+
+		if resp.Source == "" {
+			resp.Source = "none"
+		}
+
+		c.JSON(http.StatusOK, resp)
+	})
+
 	return router
 }
 
@@ -533,6 +605,212 @@ func toJSON(data any) string {
 		return ""
 	}
 	return string(b)
+}
+
+func normalizeMedList(meds, details string) []string {
+	var tokens []string
+	split := func(text string) {
+		for _, part := range strings.FieldsFunc(text, func(r rune) bool {
+			return r == ',' || r == ';' || r == '\n' || r == '\r'
+		}) {
+			token := strings.ToLower(strings.TrimSpace(part))
+			if token != "" {
+				tokens = append(tokens, token)
+			}
+		}
+	}
+	split(meds)
+	split(details)
+
+	seen := make(map[string]bool, len(tokens))
+	var out []string
+	for _, t := range tokens {
+		if !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func lookupInteractionsDB(ctx context.Context, db *pgxpool.Pool, meds []string) ([]Interaction, string, error) {
+	rows, err := db.Query(ctx, `
+		select drug_a, drug_b, severity, note
+		from drug_interactions
+		where drug_a = any($1) and drug_b = any($1)
+	`, meds)
+	if err != nil {
+		if strings.Contains(err.Error(), "does not exist") {
+			return nil, "drug_interactions table missing", err
+		}
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	dedup := make(map[string]Interaction)
+	for rows.Next() {
+		var drugA, drugB, severity, note string
+		if err := rows.Scan(&drugA, &drugB, &severity, &note); err != nil {
+			return nil, "", err
+		}
+		drugA = strings.TrimSpace(drugA)
+		drugB = strings.TrimSpace(drugB)
+		sev := strings.ToUpper(strings.TrimSpace(severity))
+		if sev != "HIGH" && sev != "MEDIUM" && sev != "LOW" {
+			sev = "MEDIUM"
+		}
+
+		keyParts := []string{strings.ToLower(drugA), strings.ToLower(drugB)}
+		sort.Strings(keyParts)
+		key := strings.Join(keyParts, "|")
+		dedup[key] = Interaction{
+			Pair:     fmt.Sprintf("%s + %s", drugA, drugB),
+			Severity: sev,
+			Note:     note,
+		}
+	}
+
+	var interactions []Interaction
+	for _, v := range dedup {
+		interactions = append(interactions, v)
+	}
+	return interactions, "", nil
+}
+
+func lookupInteractionsRxNav(ctx context.Context, meds []string) ([]Interaction, []string, []string, []string) {
+	var resolved []string
+	var unresolved []string
+	var rxcuis []string
+
+	for _, med := range meds {
+		rxcui, err := resolveRXCUI(ctx, med)
+		if err != nil {
+			unresolved = append(unresolved, med)
+			continue
+		}
+		if rxcui == "" {
+			unresolved = append(unresolved, med)
+			continue
+		}
+		resolved = append(resolved, med)
+		rxcuis = append(rxcuis, rxcui)
+	}
+
+	if len(rxcuis) < 2 {
+		warning := "not_enough_rxcui_matches"
+		if len(resolved) == 0 {
+			warning = "no_rxcui_matches"
+		}
+		return []Interaction{}, resolved, unresolved, []string{warning}
+	}
+
+	interactions, warnings := fetchRxNavInteractions(ctx, rxcuis)
+	return interactions, resolved, unresolved, warnings
+}
+
+func resolveRXCUI(ctx context.Context, med string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("https://rxnav.nlm.nih.gov/REST/rxcui.json?name=%s", url.QueryEscape(med)), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var parsed struct {
+		IDGroup struct {
+			RxNormID []string `json:"rxnormId"`
+		} `json:"idGroup"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return "", err
+	}
+	if len(parsed.IDGroup.RxNormID) == 0 {
+		return "", nil
+	}
+	return parsed.IDGroup.RxNormID[0], nil
+}
+
+func fetchRxNavInteractions(ctx context.Context, rxcuis []string) ([]Interaction, []string) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("https://rxnav.nlm.nih.gov/REST/interaction/list.json?rxcuis=%s", url.QueryEscape(strings.Join(rxcuis, "+"))), nil)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("rxnav_request_build_failed: %v", err)}
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("rxnav_request_failed: %v", err)}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, []string{fmt.Sprintf("rxnav_status_%d", resp.StatusCode)}
+	}
+
+	var parsed struct {
+		FullInteractionTypeGroup []struct {
+			FullInteractionType []struct {
+				InteractionPair []struct {
+					Severity           string `json:"severity"`
+					Description        string `json:"description"`
+					InteractionConcept []struct {
+						MinConceptItem struct {
+							Name string `json:"name"`
+						} `json:"minConceptItem"`
+					} `json:"interactionConcept"`
+				} `json:"interactionPair"`
+			} `json:"fullInteractionType"`
+		} `json:"fullInteractionTypeGroup"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, []string{fmt.Sprintf("rxnav_decode_failed: %v", err)}
+	}
+
+	dedup := make(map[string]Interaction)
+	for _, group := range parsed.FullInteractionTypeGroup {
+		for _, full := range group.FullInteractionType {
+			for _, pair := range full.InteractionPair {
+				var names []string
+				for _, concept := range pair.InteractionConcept {
+					name := strings.TrimSpace(concept.MinConceptItem.Name)
+					if name != "" {
+						names = append(names, name)
+					}
+				}
+				if len(names) < 2 {
+					continue
+				}
+				sort.Strings(names)
+				key := strings.ToLower(strings.Join(names, "|"))
+				dedup[key] = Interaction{
+					Pair:     strings.Join(names, " + "),
+					Severity: mapRxSeverity(pair.Severity),
+					Note:     strings.TrimSpace(pair.Description),
+				}
+			}
+		}
+	}
+
+	var interactions []Interaction
+	for _, v := range dedup {
+		interactions = append(interactions, v)
+	}
+	return interactions, []string{}
+}
+
+func mapRxSeverity(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "high", "major", "contraindicated":
+		return "HIGH"
+	case "moderate":
+		return "MEDIUM"
+	case "low", "minor":
+		return "LOW"
+	default:
+		return "MEDIUM"
+	}
 }
 
 func mockAnalyze(data PatientData) DiagnosticResult {
