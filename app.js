@@ -426,11 +426,11 @@ async function analyze() {
             document.getElementById('step-intake').style.display = 'block';
             return;
         }
-        await addLog("FALLING BACK TO SAFE MODE...");
-        result = mockAnalyze(currentPatientData);
-        renderResults(result);
         document.getElementById('step-processing').style.display = 'none';
-        document.getElementById('step-results').style.display = 'block';
+        document.getElementById('step-results').style.display = 'none';
+        document.getElementById('step-intake').style.display = 'block';
+        await addLog("DIAGNOSTIC RUN ABORTED. NO RESULTS GENERATED.");
+        alert(`Analysis failed. Please retry.\n\nDetails: ${e.message || 'Unknown error'}`);
     }
 }
 
