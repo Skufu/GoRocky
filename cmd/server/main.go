@@ -376,14 +376,35 @@ func setupRouter(db HealthChecker, staticRoot string, cfg *Config) *gin.Engine {
 	})
 
 	router.GET("/api/config", func(c *gin.Context) {
+		// Determine a sensible default model: respect env override, else pick the first available.
+		envDefault := strings.ToLower(getEnv("DEFAULT_MODEL", ""))
+		modelAvailability := map[string]bool{
+			"mock":   true,
+			"gemini": cfg.GeminiAPIKey != "",
+			"openai": cfg.OpenAIAPIKey != "",
+		}
+
+		// Force OpenAI when available; allow explicit env override for non-mock values.
+		defaultModel := ""
+		if envDefault != "" && envDefault != "mock" && modelAvailability[envDefault] {
+			defaultModel = envDefault
+		}
+
+		if defaultModel == "" {
+			switch {
+			case modelAvailability["openai"]:
+				defaultModel = "openai"
+			case modelAvailability["gemini"]:
+				defaultModel = "gemini"
+			default:
+				defaultModel = "mock"
+			}
+		}
+
 		cfgResp := map[string]any{
-			"defaultModel": getEnv("DEFAULT_MODEL", "mock"),
-			"models": map[string]bool{
-				"mock":   true,
-				"gemini": cfg.GeminiAPIKey != "",
-				"openai": cfg.OpenAIAPIKey != "",
-			},
-			"llmProxy": true,
+			"defaultModel": defaultModel,
+			"models":       modelAvailability,
+			"llmProxy":     true,
 		}
 		c.JSON(http.StatusOK, cfgResp)
 	})
