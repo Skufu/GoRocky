@@ -4,7 +4,7 @@
 // the API base, default model, and enabled models. LLM calls are proxied
 // through the backend; keys stay server-side.
 window.__APP_CONFIG = window.__APP_CONFIG || {
-    apiBaseUrl: 'https://gorocky-api.onrender.com',
+    apiBaseUrl: '',
     defaultModel: 'openai', // options: mock | gemini | openai
     models: {
         mock: true,
