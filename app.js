@@ -11,7 +11,7 @@ let reviewedPlan = null;
 
 // The Medical System Prompt - Hard Constraints
 const MEDICAL_PROMPT = `
-        You are GoCare Clinical AI, a high-precision medical decision support engine.
+        You are GoRocky Clinical AI, a high-precision medical decision support engine.
         Analyze the patient intake data and provide a structured JSON treatment plan.
 
         Patient intake fields: name, age, weight, height, BMI, blood pressure, lifestyle (smoking, alcohol, exercise), conditions, medications (with details), allergies, complaint.
@@ -667,25 +667,31 @@ function mockAnalyze(data) {
 
 function validateSchema(data) {
     if (!data || typeof data !== 'object') throw new Error("Invalid response payload");
-    RESPONSE_SCHEMA.requiredStrings.forEach(field => {
-        if (!data[field] || typeof data[field] !== 'string') throw new Error(`Missing/invalid ${field}`);
-    });
-    RESPONSE_SCHEMA.requiredNumbers.forEach(field => {
-        if (typeof data[field] !== 'number') throw new Error(`Missing/invalid ${field}`);
-    });
-    if (!RESPONSE_SCHEMA.allowedRiskLevels.includes(data.riskLevel)) throw new Error("Invalid Risk Level value");
-    if (!data.plan || typeof data.plan !== 'object') throw new Error("Missing plan");
-    RESPONSE_SCHEMA.requiredPlanStrings.forEach(field => {
-        if (!data.plan[field] || typeof data.plan[field] !== 'string') throw new Error(`Missing/invalid plan.${field}`);
-    });
-    RESPONSE_SCHEMA.arrays.forEach(field => {
-        if (data[field] && !Array.isArray(data[field])) throw new Error(`Invalid ${field} (expected array)`);
-    });
-    data.interactions = data.interactions || [];
-    data.contraindications = data.contraindications || [];
-    data.dosingConcerns = data.dosingConcerns || [];
-    data.alternatives = data.alternatives || [];
-    data.plan = data.plan || { medication: "None", dosage: "N/A", duration: "N/A", rationale: "No plan generated." };
+
+    const ensureString = (val, fallback) => (typeof val === 'string' && val.trim() ? val : fallback);
+    const ensureNumber = (val, fallback) => (typeof val === 'number' ? val : fallback);
+    const ensureArray = (val) => (Array.isArray(val) ? val : []);
+
+    // Coerce required scalars
+    data.riskLevel = RESPONSE_SCHEMA.allowedRiskLevels.includes(data.riskLevel) ? data.riskLevel : "MEDIUM";
+    data.riskScore = ensureNumber(data.riskScore, 0);
+    data.confidenceScore = ensureNumber(data.confidenceScore, 0);
+
+    // Coerce plan block instead of failing hard on missing fields
+    const plan = (data.plan && typeof data.plan === 'object') ? data.plan : {};
+    data.plan = {
+        medication: ensureString(plan.medication, "None"),
+        dosage: ensureString(plan.dosage, "Not specified"),
+        duration: ensureString(plan.duration, "Not specified"),
+        rationale: ensureString(plan.rationale, "No plan generated.")
+    };
+
+    // Arrays
+    data.issues = ensureArray(data.issues);
+    data.interactions = ensureArray(data.interactions);
+    data.contraindications = ensureArray(data.contraindications);
+    data.dosingConcerns = ensureArray(data.dosingConcerns);
+    data.alternatives = ensureArray(data.alternatives);
 }
 
 // RENDER FUNCTIONS
