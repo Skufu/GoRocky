@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -101,6 +103,43 @@ type validationError struct {
 	Message string `json:"message"`
 }
 
+const systemPrompt = `
+You are GoRocky Clinical AI, a high-precision medical decision support engine.
+Analyze the patient intake data and provide a structured JSON treatment plan.
+
+Patient intake fields: name, age, weight, height, BMI, blood pressure, lifestyle (smoking, alcohol, exercise), conditions, medications (with details), allergies, complaint.
+
+*** CRITICAL MEDICAL RULES (STRICT ENFORCEMENT) ***
+1. [CONTRAINDICATION - HIGH] Nitrates (Nitroglycerin, Isosorbide) + PDE5 inhibitors (Sildenafil, Tadalafil, Vardenafil, Avanafil) -> Risk of profound hypotension. Do NOT co-administer.
+2. [CONTRAINDICATION - HIGH] PDE5 inhibitor allergy or nitrate allergy -> Avoid prescribing PDE5 inhibitors.
+3. [INTERACTION - MEDIUM] Alpha-blockers (Tamsulosin, Terazosin, Doxazosin, Alfuzosin) + PDE5 inhibitors -> Separate dosing, start low.
+4. [INTERACTION - MEDIUM] Strong CYP3A4 inhibitors (Ketoconazole, Itraconazole, Ritonavir, Cobicistat, Clarithromycin) + PDE5 inhibitors -> Use lowest dose / avoid high doses.
+5. [DOSING - MEDIUM] Renal impairment (Kidney Disease) -> Start with lower PDE5 inhibitor dose (2.5mg/5mg daily max).
+6. [DOSING - MEDIUM] Age > 65 -> Start with lower dose.
+7. [CONTRAINDICATION - MEDIUM] Pregnancy -> Avoid PDE5 inhibitor use (safety not established).
+8. [CAUTION] Heart disease or uncontrolled hypertension -> Assess hemodynamic risk; prefer low dose or alternative.
+
+*** REQUIRED OUTPUT FORMAT (JSON ONLY) ***
+Return valid JSON (no markdown) matching:
+{
+  "riskScore": number (0-100),
+  "riskLevel": "LOW" | "MEDIUM" | "HIGH",
+  "issues": ["List of contraindications/interactions/dosing warnings"],
+  "interactions": [{"pair": "Drug A + Drug B/Class", "severity": "HIGH"|"MEDIUM"|"LOW", "note": "clinical rationale"}],
+  "contraindications": [{"conditionOrAllergy": "string", "severity": "HIGH"|"MEDIUM"|"LOW", "note": "clinical rationale"}],
+  "dosingConcerns": [{"factor": "age|renal|hepatic|other", "severity": "HIGH"|"MEDIUM"|"LOW", "recommendation": "actionable guidance"}],
+  "plan": {
+    "medication": "Drug Name" | "None",
+    "dosage": "e.g. 2.5mg Daily",
+    "duration": "e.g. 30 Days",
+    "rationale": "Concise clinical reasoning"
+  },
+  "alternatives": ["Alternative 1", "Alternative 2"],
+  "confidenceScore": number (0.0 to 1.0),
+  "source": "model" | "rules" | "rules+model"
+}
+`
+
 var (
 	pde5iClass        = []string{"sildenafil", "tadalafil", "vardenafil", "avanafil"}
 	nitrateClass      = []string{"nitroglycerin", "isosorbide", "isosorbide dinitrate", "isosorbide mononitrate"}
@@ -118,6 +157,7 @@ var (
 		"MEDIUM": 20,
 		"LOW":    10,
 	}
+	httpClient = &http.Client{Timeout: 15 * time.Second}
 )
 
 type Rule struct {
@@ -154,7 +194,7 @@ func main() {
 	}
 
 	staticRoot := detectStaticRoot()
-	router := setupRouter(db, staticRoot)
+	router := setupRouter(db, staticRoot, cfg)
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
@@ -214,7 +254,7 @@ func connectDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func setupRouter(db HealthChecker, staticRoot string) *gin.Engine {
+func setupRouter(db HealthChecker, staticRoot string, cfg *Config) *gin.Engine {
 	router := gin.New()
 	router.Use(
 		gin.Logger(),
@@ -283,7 +323,195 @@ func setupRouter(db HealthChecker, staticRoot string) *gin.Engine {
 		c.JSON(http.StatusOK, result)
 	})
 
+	router.POST("/api/diagnostics/gemini", func(c *gin.Context) {
+		if cfg.GeminiAPIKey == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "gemini_unavailable", "reason": "missing_api_key"})
+			return
+		}
+		var payload PatientData
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+		if errs := validatePatientData(payload); len(errs) > 0 {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"error":  "validation_failed",
+				"issues": errs,
+			})
+			return
+		}
+		resp, err := proxyGemini(c.Request.Context(), cfg.GeminiAPIKey, payload)
+		if err != nil {
+			log.Printf("gemini proxy error: %v", err)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "gemini_proxy_failed", "details": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, resp)
+	})
+
+	router.POST("/api/diagnostics/openai", func(c *gin.Context) {
+		if cfg.OpenAIAPIKey == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "openai_unavailable", "reason": "missing_api_key"})
+			return
+		}
+		var payload PatientData
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+		if errs := validatePatientData(payload); len(errs) > 0 {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"error":  "validation_failed",
+				"issues": errs,
+			})
+			return
+		}
+		resp, err := proxyOpenAI(c.Request.Context(), cfg.OpenAIAPIKey, payload)
+		if err != nil {
+			log.Printf("openai proxy error: %v", err)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "openai_proxy_failed", "details": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, resp)
+	})
+
+	router.GET("/api/config", func(c *gin.Context) {
+		cfgResp := map[string]any{
+			"defaultModel": getEnv("DEFAULT_MODEL", "mock"),
+			"models": map[string]bool{
+				"mock":   true,
+				"gemini": cfg.GeminiAPIKey != "",
+				"openai": cfg.OpenAIAPIKey != "",
+			},
+			"llmProxy": true,
+		}
+		c.JSON(http.StatusOK, cfgResp)
+	})
+
 	return router
+}
+
+func proxyGemini(ctx context.Context, apiKey string, data PatientData) (map[string]any, error) {
+	bodyBytes, err := json.Marshal(map[string]any{
+		"contents": []map[string]any{
+			{"parts": []map[string]string{{"text": fmt.Sprintf("Patient Data: %s", toJSON(data))}}},
+		},
+		"systemInstruction": map[string]any{
+			"parts": []map[string]string{{"text": systemPrompt}},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=%s", apiKey), bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("call gemini: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("gemini status %d", resp.StatusCode)
+	}
+
+	var parsed struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("decode gemini response: %w", err)
+	}
+	if len(parsed.Candidates) == 0 || len(parsed.Candidates[0].Content.Parts) == 0 {
+		return nil, fmt.Errorf("gemini response missing content")
+	}
+	rawText := cleanupJSONText(parsed.Candidates[0].Content.Parts[0].Text)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(rawText), &out); err != nil {
+		return nil, fmt.Errorf("unmarshal gemini payload: %w", err)
+	}
+	return out, nil
+}
+
+func proxyOpenAI(ctx context.Context, apiKey string, data PatientData) (map[string]any, error) {
+	bodyBytes, err := json.Marshal(map[string]any{
+		"model": "gpt-4o",
+		"messages": []map[string]string{
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": toJSON(data)},
+		},
+		"response_format": map[string]string{"type": "json_object"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("call openai: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("openai status %d", resp.StatusCode)
+	}
+
+	var parsed struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("decode openai response: %w", err)
+	}
+	if len(parsed.Choices) == 0 {
+		return nil, fmt.Errorf("openai response missing choices")
+	}
+	rawText := cleanupJSONText(parsed.Choices[0].Message.Content)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(rawText), &out); err != nil {
+		return nil, fmt.Errorf("unmarshal openai payload: %w", err)
+	}
+	return out, nil
+}
+
+func cleanupJSONText(s string) string {
+	s = strings.ReplaceAll(s, "```json", "")
+	s = strings.ReplaceAll(s, "```", "")
+	return strings.TrimSpace(s)
+}
+
+func toJSON(data any) string {
+	b, err := json.Marshal(data)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func mockAnalyze(data PatientData) DiagnosticResult {

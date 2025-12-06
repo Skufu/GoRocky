@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -78,7 +79,7 @@ func TestLoadConfigUsesDefaults(t *testing.T) {
 
 func TestRouterHealthz(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := setupRouter(fakeDB{}, ".")
+	router := setupRouter(fakeDB{}, ".", &Config{})
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/healthz", nil)
@@ -89,6 +90,35 @@ func TestRouterHealthz(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"status":"ok"`) {
 		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestConfigEndpoint_NoKeys(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := setupRouter(nil, ".", &Config{GeminiAPIKey: "", OpenAIAPIKey: ""})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/config", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse config response: %v", err)
+	}
+
+	models, ok := resp["models"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected models in response, got %v", resp)
+	}
+	if models["gemini"] != false || models["openai"] != false {
+		t.Fatalf("expected gemini/openai false without keys, got %v", models)
+	}
+	if _, exists := resp["modelKeys"]; exists {
+		t.Fatalf("modelKeys should not be exposed, got %v", resp)
 	}
 }
 
@@ -127,7 +157,7 @@ func TestLimitBodySize(t *testing.T) {
 
 func TestDiagnosticsValidation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := setupRouter(nil, ".")
+	router := setupRouter(nil, ".", &Config{})
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/diagnostics/mock", strings.NewReader(`{

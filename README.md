@@ -7,8 +7,8 @@ Static clinical UI + Gin backend with a mock diagnostic endpoint, Docker/Compose
 ## Frontend
 - Static files: `index.html`, `styles.css`, `app.js`, `config.js`.
 - Configure API base: set `window.__APP_CONFIG.apiBaseUrl` in `config.js` (defaults to `window.location.origin`).
-- Model defaults (config-driven): set `defaultModel` to `mock|gemini|openai`, toggle availability via `models` flags, and optionally inject keys via `modelKeys.gemini`/`modelKeys.openai` (map from `GEMINI_API_KEY` / `OPENAI_API_KEY` at deploy).
-- The client POSTs to `/api/diagnostics/mock`; errors log in the terminal panel and fall back to a local mock if the backend fails.
+- Model defaults (config-driven): set `defaultModel` to `mock|gemini|openai`, toggle availability via `models` flags; keys live server-side (proxied via backend).
+- The client POSTs to `/api/diagnostics/mock`; for LLMs it POSTs to `/api/diagnostics/gemini` or `/api/diagnostics/openai` (backend proxy). Errors log in the terminal panel and fall back to a local mock if the backend fails.
 
 ## Backend
 - Gin server (`cmd/server/main.go`) with:
@@ -17,6 +17,7 @@ Static clinical UI + Gin backend with a mock diagnostic endpoint, Docker/Compose
   - `POST /api/diagnostics/mock` (mock risk output)
   - CORS enabled, 1MB body limit, release mode by default.
 - Env vars: `PORT` (default 8080), `ENABLE_DB` (default false), `DATABASE_URL` (required only when `ENABLE_DB=true`), `GIN_MODE` (release), optional `GEMINI_API_KEY`, `OPENAI_API_KEY`.
+- `DEFAULT_MODEL` controls the default selected model in `/api/config` (default `mock`). LLM availability in `/api/config` is driven by the presence of `GEMINI_API_KEY` / `OPENAI_API_KEY`.
 
 ## API
 - Base URL defaults to `http://localhost:8080`.

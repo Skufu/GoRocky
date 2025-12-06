@@ -74,11 +74,22 @@ function chooseDefaultModel() {
     return 'mock';
 }
 
-function applyConfigDefaults() {
-    if (APP_CONFIG.modelKeys) {
-        if (APP_CONFIG.modelKeys.gemini) apiKeys.gemini = APP_CONFIG.modelKeys.gemini;
-        if (APP_CONFIG.modelKeys.openai) apiKeys.openai = APP_CONFIG.modelKeys.openai;
+async function loadServerConfig() {
+    try {
+        const res = await fetch(`${API_BASE}/api/config`, { method: 'GET' });
+        if (!res.ok) return;
+        const data = await res.json();
+        Object.assign(APP_CONFIG, data);
+        MODEL_AVAILABILITY.gemini = APP_CONFIG.models?.gemini !== false;
+        MODEL_AVAILABILITY.openai = APP_CONFIG.models?.openai !== false;
+        MODEL_AVAILABILITY.mock = APP_CONFIG.models?.mock !== false;
+        applyConfigDefaults();
+    } catch (e) {
+        console.warn("Failed to load server config", e);
     }
+}
+
+function applyConfigDefaults() {
     const selector = document.getElementById('model-selector');
     const nextModel = chooseDefaultModel();
     activeModel = nextModel;
@@ -269,18 +280,6 @@ window.initiateAnalysis = function () {
         alert("ERROR: MODEL_DISABLED");
         return;
     }
-    if (activeModel !== 'mock') {
-        if (activeModel === 'gemini' && !apiKeys.gemini) {
-            alert("MISSING API KEY: Please configure Gemini Key in settings.");
-            openSettings();
-            return;
-        }
-        if (activeModel === 'openai' && !apiKeys.openai) {
-            alert("MISSING API KEY: Please configure OpenAI Key in settings.");
-            openSettings();
-            return;
-        }
-    }
     const sys = Number(document.getElementById('p-bp-sys').value) || 0;
     const dia = Number(document.getElementById('p-bp-dia').value) || 0;
     const h = Number(document.getElementById('p-height').value) || 0;
@@ -461,41 +460,29 @@ async function callBackendMock(patientData) {
 }
 
 async function callGemini(patientData) {
-    const prompt = `Patient Data: ${JSON.stringify(patientData)}`;
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKeys.gemini}`, {
+    const response = await fetch(`${API_BASE}/api/diagnostics/gemini`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            systemInstruction: { parts: [{ text: MEDICAL_PROMPT }] }
-        })
+        body: JSON.stringify(patientData)
     });
-    if (!response.ok) throw new Error('Gemini API Failed');
-    const data = await response.json();
-    let text = data.candidates[0].content.parts[0].text;
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(text);
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Gemini proxy failed (${response.status}): ${text}`);
+    }
+    return await response.json();
 }
 
 async function callOpenAI(patientData) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch(`${API_BASE}/api/diagnostics/openai`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKeys.openai}`
-        },
-        body: JSON.stringify({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: MEDICAL_PROMPT },
-                { role: "user", content: JSON.stringify(patientData) }
-            ],
-            response_format: { type: "json_object" }
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patientData)
     });
-    if (!response.ok) throw new Error('OpenAI API Failed');
-    const data = await response.json();
-    return JSON.parse(data.choices[0].message.content);
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`OpenAI proxy failed (${response.status}): ${text}`);
+    }
+    return await response.json();
 }
 
 // Local safety rules engine for deterministic DDI/contra/dosing checks
@@ -1053,6 +1040,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateModelDisplay();
     setMedRows([{}]);
     applyConfigDefaults();
+    loadServerConfig();
 
     const weightEl = document.getElementById('p-weight');
     const heightEl = document.getElementById('p-height');
