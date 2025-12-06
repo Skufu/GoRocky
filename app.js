@@ -67,10 +67,11 @@ function modelEnabled(model) {
 }
 
 function chooseDefaultModel() {
+    // Force OpenAI when available; otherwise fall back to the configured preference.
+    if (modelEnabled('openai')) return 'openai';
     const preferred = (APP_CONFIG.defaultModel || '').toLowerCase();
     if (preferred && modelEnabled(preferred)) return preferred;
     if (modelEnabled('gemini')) return 'gemini';
-    if (modelEnabled('openai')) return 'openai';
     return 'mock';
 }
 
