@@ -251,6 +251,9 @@ func connectDB(ctx context.Context, rawURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("parse db url: %w", err)
 	}
 
+	// Drop any unexpected runtime parameters that servers may reject (e.g., "mode").
+	delete(cfg.ConnConfig.RuntimeParams, "mode")
+
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create pool: %w", err)
