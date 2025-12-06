@@ -202,11 +202,12 @@ window.prefill = function (type) {
         if (pregBox) pregBox.checked = false;
     } else {
         nameInput.value = "Robert Vance";
-        medsInput.value = "Nitroglycerin, Atorvastatin, Tamsulosin";
+        medsInput.value = "Nitroglycerin; Atorvastatin; Tamsulosin; Ketoconazole";
         setMedRows([
-            { drug: "Nitroglycerin", dose: "0.4mg SL", freq: "PRN" },
+            { drug: "Nitroglycerin", dose: "0.4mg SL", freq: "PRN (chest pain)" },
             { drug: "Atorvastatin", dose: "40mg", freq: "QD" },
-            { drug: "Tamsulosin", dose: "0.4mg", freq: "QD" }
+            { drug: "Tamsulosin", dose: "0.4mg", freq: "QD" },
+            { drug: "Ketoconazole", dose: "200mg", freq: "QD (strong CYP3A4 inhibitor)" }
         ]);
         document.getElementById('p-weight').value = 98;
         document.getElementById('p-height').value = 173;
@@ -217,12 +218,10 @@ window.prefill = function (type) {
         alcohol.value = "moderate";
         exercise.value = "1-2x/week";
         document.getElementById('p-complaint').value = "Erectile Dysfunction";
-        Array.from(checkboxes).find(cb => cb.value === 'Heart Disease').checked = true;
-        Array.from(checkboxes).find(cb => cb.value === 'Hypertension').checked = true;
-        const pregBox = Array.from(checkboxes).find(cb => cb.value === 'Pregnant');
-        if (pregBox) pregBox.checked = false;
-        const kidneyBox = Array.from(checkboxes).find(cb => cb.value === 'Kidney Disease');
-        if (kidneyBox) kidneyBox.checked = true;
+        Array.from(checkboxes).forEach(cb => {
+            cb.checked = ['Heart Disease', 'Hypertension', 'Kidney Disease'].includes(cb.value);
+        });
+        allergyInput.value = "Sildenafil (PDE5i allergy)";
     }
     recalcBMI();
 };
