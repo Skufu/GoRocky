@@ -125,6 +125,30 @@ func TestLimitBodySize(t *testing.T) {
 	})
 }
 
+func TestDiagnosticsValidation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := setupRouter(nil, ".")
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/diagnostics/mock", strings.NewReader(`{
+		"name": "",
+		"conditions": ["Hypertension"],
+		"bpSystolic": 0,
+		"bpDiastolic": 0
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for validation failure, got %d", w.Code)
+	}
+	body := strings.ToLower(w.Body.String())
+	if !strings.Contains(body, "validation_failed") || !strings.Contains(body, "blood pressure") {
+		t.Fatalf("expected validation error response, got %s", w.Body.String())
+	}
+}
+
 // Guard against long-running tests due to context leaks.
 func TestLimitBodySizeContextDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

@@ -96,6 +96,11 @@ type RecommendationConfidence struct {
 	Plan float64 `json:"plan"`
 }
 
+type validationError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
 var (
 	pde5iClass        = []string{"sildenafil", "tadalafil", "vardenafil", "avanafil"}
 	nitrateClass      = []string{"nitroglycerin", "isosorbide", "isosorbide dinitrate", "isosorbide mononitrate"}
@@ -263,6 +268,14 @@ func setupRouter(db HealthChecker, staticRoot string) *gin.Engine {
 		var payload PatientData
 		if err := c.ShouldBindJSON(&payload); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+
+		if errs := validatePatientData(payload); len(errs) > 0 {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"error":  "validation_failed",
+				"issues": errs,
+			})
 			return
 		}
 
@@ -692,6 +705,48 @@ func hasSeverityContra(items []Contraindication, severity string) bool {
 		}
 	}
 	return false
+}
+
+func validatePatientData(p PatientData) []validationError {
+	var errs []validationError
+
+	add := func(field, msg string) {
+		errs = append(errs, validationError{Field: field, Message: msg})
+	}
+
+	if strings.TrimSpace(p.Name) == "" {
+		add("name", "Name is required.")
+	}
+
+	if p.Age < 0 || p.Age > 120 {
+		add("age", "Age must be between 0 and 120.")
+	}
+
+	if p.Height < 0 || (p.Height > 0 && (p.Height < 90 || p.Height > 250)) {
+		add("height", "Height must be between 90 and 250 cm when provided.")
+	}
+
+	if p.Weight < 0 || (p.Weight > 0 && (p.Weight < 25 || p.Weight > 350)) {
+		add("weight", "Weight must be between 25 and 350 kg when provided.")
+	}
+
+	if (p.BPSystolic > 0 && p.BPSystolic < 50) || (p.BPDiastolic > 0 && p.BPDiastolic < 30) {
+		add("bloodPressure", "Blood pressure values are implausible.")
+	}
+
+	if containsString(lowerSlice(p.Conditions), "hypertension") && (p.BPSystolic == 0 || p.BPDiastolic == 0) {
+		add("bloodPressure", "Blood pressure is required when hypertension is selected.")
+	}
+
+	return errs
+}
+
+func lowerSlice(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, strings.ToLower(strings.TrimSpace(v)))
+	}
+	return out
 }
 
 func waitForShutdown(server *http.Server) {

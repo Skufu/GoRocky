@@ -377,6 +377,14 @@ async function analyze() {
     } catch (e) {
         console.error(e);
         await addLog(`CRITICAL ERROR: ${e.message}`);
+        if (e.name === 'ValidationError' && Array.isArray(e.issues)) {
+            const formatted = e.issues.map(i => `- ${i.field || 'field'}: ${i.message}`).join('\n');
+            await addLog("VALIDATION FAILED. PLEASE CORRECT INPUT.");
+            alert(`Validation failed:\n${formatted}`);
+            document.getElementById('step-processing').style.display = 'none';
+            document.getElementById('step-intake').style.display = 'block';
+            return;
+        }
         await addLog("FALLING BACK TO SAFE MODE...");
         result = mockAnalyze(currentPatientData);
         renderResults(result);
@@ -393,7 +401,18 @@ async function callBackendMock(patientData) {
         body: JSON.stringify(patientData)
     });
     if (!response.ok) {
-        const text = await response.text();
+        let text = await response.text();
+        try {
+            const json = JSON.parse(text || '{}');
+            if (response.status === 422 && json.error === 'validation_failed' && Array.isArray(json.issues)) {
+                const err = new Error('Validation failed');
+                err.name = 'ValidationError';
+                err.issues = json.issues;
+                throw err;
+            }
+        } catch {
+            // ignore parse issues and fall through to generic error
+        }
         throw new Error(`Backend error (${response.status}): ${text}`);
     }
     return await response.json();

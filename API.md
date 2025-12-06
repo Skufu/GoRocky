@@ -67,6 +67,7 @@ Success `200 OK` (example):
 
 Error shapes:
 - `400 {"error":"invalid payload"}` — JSON bind/shape error.
+- `422 {"error":"validation_failed","issues":[{"field":"bloodPressure","message":"Blood pressure is required when hypertension is selected."}]}` — validation errors (name required, plausible vitals, hypertension requires BP, etc.).
 - `503 {"status":"degraded","db":"unhealthy: <details>"}` — only from `readyz` when DB unhealthy.
 - `413` if body exceeds ~1MB.
 
