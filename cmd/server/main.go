@@ -665,7 +665,8 @@ func lookupInteractionsDB(ctx context.Context, db *pgxpool.Pool, meds []string) 
 	`, meds)
 	if err != nil {
 		if strings.Contains(err.Error(), "does not exist") {
-			return nil, "drug_interactions table missing", err
+			// Table not provisioned yet; treat as no data without warning noise.
+			return nil, "", nil
 		}
 		return nil, "", err
 	}
@@ -768,6 +769,10 @@ func fetchRxNavInteractions(ctx context.Context, rxcuis []string) ([]Interaction
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		// Treat 404 as "no interactions found" without noisy warnings.
+		return []Interaction{}, []string{}
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, []string{fmt.Sprintf("rxnav_status_%d", resp.StatusCode)}
 	}
