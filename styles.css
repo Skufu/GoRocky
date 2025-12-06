@@ -542,14 +542,91 @@ h3 {
     box-shadow: var(--shadow-hard);
 }
 
+#audit-log-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
 .audit-entry {
-    border-top: 1px dashed var(--ink-tertiary);
-    padding: 8px 0;
-    font-family: var(--font-tech);
-    font-size: 0.75rem;
-    color: var(--ink-secondary);
+    position: relative;
+    overflow: hidden;
+    border: var(--border-thick);
+    border-radius: 10px;
+    background: var(--bg-contrast);
+    box-shadow: var(--shadow-soft);
+}
+
+.audit-accent {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: linear-gradient(180deg, var(--brand-orange), var(--brand-blue));
+}
+
+.audit-body {
+    padding: 14px 16px 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.audit-top {
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.audit-action {
+    font-family: var(--font-tech);
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: var(--ink-primary);
+}
+
+.audit-timestamp {
+    font-family: var(--font-tech);
+    font-size: 0.8rem;
+    color: var(--ink-secondary);
+}
+
+.audit-summary {
+    font-size: 0.9rem;
+    line-height: 1.4;
+    color: var(--ink-primary);
+    background: rgba(255, 255, 255, 0.6);
+    border-left: 3px solid var(--brand-orange);
+    padding: 8px 10px;
+    border-radius: 6px;
+    white-space: pre-wrap;
+}
+
+.audit-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-tech);
+    font-size: 0.8rem;
+    color: var(--ink-secondary);
+}
+
+.audit-label {
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--ink-primary);
+}
+
+.audit-id {
+    font-family: monospace;
+    padding: 4px 8px;
+    background: var(--bg-paper);
+    border: var(--border-thin);
+    border-radius: 6px;
+    color: var(--ink-primary);
 }
 
 @keyframes checkDraw {

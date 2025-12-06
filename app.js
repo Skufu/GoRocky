@@ -1092,14 +1092,22 @@ function isPDE5Drug(name) {
 
 function generateAuditLog(action, summary) {
     const timestamp = new Date().toISOString();
-    const hash = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-    const extra = summary ? `<span style="font-family: var(--font-tech); color: var(--ink-secondary);">${summary}</span>` : '';
+    const entryId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    const summaryBlock = summary ? `<div class="audit-summary">${summary}</div>` : '';
     return `
                 <div class="audit-entry">
-                    <span>${timestamp}</span>
-                    <span>${action.toUpperCase()}</span>
-                    ${extra}
-                    <span style="font-family:monospace;">${hash}</span>
+                    <div class="audit-accent"></div>
+                    <div class="audit-body">
+                        <div class="audit-top">
+                            <span class="audit-action">${action.toUpperCase()}</span>
+                            <span class="audit-timestamp">${timestamp}</span>
+                        </div>
+                        ${summaryBlock}
+                        <div class="audit-meta">
+                            <span class="audit-label">ENTRY ID</span>
+                            <span class="audit-id">${entryId}</span>
+                        </div>
+                    </div>
                 </div>
             `;
 }
